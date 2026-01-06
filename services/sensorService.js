@@ -58,24 +58,10 @@ const getMetricData = async (query = {}) => {
     matchStage['gateway.nodes.devices.id'] = { $in: sensorIds }
   }
 
-  let groupFormat = null
-  switch (normalizedTimeField) {
-    case 'minute':
-      groupFormat = '%Y-%m-%dT%H:%M:00Z'
-      break
-    case 'hour':
-      groupFormat = '%Y-%m-%dT%H:00:00Z'
-      break
-    case 'day':
-      groupFormat = '%Y-%m-%dT00:00:00Z'
-      break
-    default:
-      groupFormat = null
-  }
-
   const normalizedValueExpr = {
     $ifNull: [`$${metricsValueField}`, `$${flatValueField}`]
   }
+
   const normalizedUnitExpr = {
     $ifNull: [`$${metricsUnitField}`, '$gateway.nodes.devices.unit']
   }
@@ -87,7 +73,9 @@ const getMetricData = async (query = {}) => {
       $set: {
         'gateway.nodes.devices.timestamp': {
           $cond: {
-            if: { $eq: [{ $type: '$gateway.nodes.devices.timestamp' }, 'string'] },
+            if: {
+              $eq: [{ $type: '$gateway.nodes.devices.timestamp' }, 'string']
+            },
             then: { $toDate: '$gateway.nodes.devices.timestamp' },
             else: '$gateway.nodes.devices.timestamp'
           }
@@ -100,6 +88,7 @@ const getMetricData = async (query = {}) => {
   ]
 
   const baseProjection = {
+    _id: '$_id',
     id: '$gateway.nodes.devices.id',
     type: '$gateway.nodes.devices.type',
     name: '$gateway.nodes.devices.name',
@@ -108,9 +97,11 @@ const getMetricData = async (query = {}) => {
     timestamp: '$gateway.nodes.devices.timestamp'
   }
 
+  /* ============================================================
+   * SEC → raw data (no grouping)
+   * ============================================================
+   */
   if (normalizedTimeField === 'sec') {
-    const lowerBound = skip
-    const upperBound = skip + limit
     pipeline.push(
       {
         $setWindowFields: {
@@ -123,53 +114,65 @@ const getMetricData = async (query = {}) => {
       },
       {
         $match: {
-          row_num: { $gt: lowerBound, $lte: upperBound }
+          row_num: { $gt: skip, $lte: skip + limit }
         }
       },
-      { $addFields: { timestamp: '$gateway.nodes.devices.timestamp' } },
       { $project: baseProjection },
-      { $sort: { 'gateway.nodes.devices.timestamp': -1 } },
       { $sort: { timestamp: 1 } }
     )
-  } else {
-    pipeline.push(
-      {
-        $group: {
-          _id: {
-            time: {
-              $dateToString: {
-                format: groupFormat,
-                date: '$gateway.nodes.devices.timestamp'
-              }
-            },
-            sensorId: '$gateway.nodes.devices.id',
-            sensorName: '$gateway.nodes.devices.name',
-            sensorType: '$gateway.nodes.devices.type'
-          },
-          value: { $avg: '$gateway.nodes.devices.value' },
-          unit: { $first: '$gateway.nodes.devices.unit' }
-        }
-      },
-      { $sort: { '_id.time': -1 } },
-      { $skip: skip },
-      { $limit: limit },
-      { $sort: { '_id.time': 1 } },
-      {
-        $project: {
-          id: '$_id.sensorId',
-          type: '$_id.sensorType',
-          name: '$_id.sensorName',
-          timestamp: {
-            $dateFromString: {
-              dateString: '$_id.time'
-            }
-          },
-          value: '$value',
-          unit: '$unit'
+
+    return aggregateData(pipeline)
+  }
+
+  /* ============================================================
+   * MINUTE / HOUR / DAY → downsample (latest per bucket)
+   * ============================================================
+   */
+
+  let bucketUnit = 'minute'
+  if (normalizedTimeField === 'hour') bucketUnit = 'hour'
+  if (normalizedTimeField === 'day') bucketUnit = 'day'
+
+  pipeline.push(
+    {
+      $set: {
+        bucketTime: {
+          $dateTrunc: {
+            date: '$gateway.nodes.devices.timestamp',
+            unit: bucketUnit
+          }
         }
       }
-    )
-  }
+    },
+    {
+      $sort: {
+        'gateway.nodes.devices.timestamp': -1
+      }
+    },
+    {
+      $group: {
+        _id: {
+          sensorId: '$gateway.nodes.devices.id',
+          bucketTime: '$bucketTime'
+        },
+        doc: { $first: '$$ROOT' }
+      }
+    },
+    {
+      $replaceRoot: {
+        newRoot: '$doc'
+      }
+    },
+    {
+      $sort: {
+        'gateway.nodes.devices.timestamp': -1
+      }
+    },
+    { $skip: skip },
+    { $limit: limit },
+    { $project: baseProjection },
+    { $sort: { timestamp: 1 } }
+  )
 
   return aggregateData(pipeline)
 }
