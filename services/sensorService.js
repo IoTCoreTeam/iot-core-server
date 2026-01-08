@@ -97,10 +97,6 @@ const getMetricData = async (query = {}) => {
     timestamp: '$gateway.nodes.devices.timestamp'
   }
 
-  /* ============================================================
-   * SEC → raw data (no grouping)
-   * ============================================================
-   */
   if (normalizedTimeField === 'sec') {
     pipeline.push(
       {
@@ -123,11 +119,6 @@ const getMetricData = async (query = {}) => {
 
     return aggregateData(pipeline)
   }
-
-  /* ============================================================
-   * MINUTE / HOUR / DAY → downsample (latest per bucket)
-   * ============================================================
-   */
 
   let bucketUnit = 'minute'
   if (normalizedTimeField === 'hour') bucketUnit = 'hour'

@@ -1,0 +1,301 @@
+// ═══════════════════════════════════════════════════════════════
+// handlers/mqttHandlers.js - Xử lý 4 sensors riêng biệt
+// ═══════════════════════════════════════════════════════════════
+
+const axios = require('axios');
+const deviceWhiteList = require('../services/deviceWhiteList');
+
+class MQTTHandlers {
+    constructor(dependencies) {
+        this.deviceWhitelist = dependencies.deviceWhitelist;
+        this.rateLimiters = dependencies.rateLimiters;
+        this.getRateLimiter = dependencies.getRateLimiter;
+        this.dbGetter = dependencies.db;
+        this.aedes = dependencies.aedes;
+        this.config = dependencies.config;
+        
+        this.nodeBuffer = new Map();
+        this.BUFFER_TIMEOUT = 10000;
+    }
+
+    get db() {
+        return this.dbGetter();
+    }
+
+    onClientConnected(client) {
+        console.log(`\n[MQTT] Gateway Connected: ${client.id}`);
+    }
+
+    onClientDisconnected(client) {
+        console.log(`\n[MQTT] Gateway Disconnected: ${client.id}`);
+    }
+
+    onSubscribe(subscriptions, client) {
+        console.log(`\n[MQTT] ${client.id} subscribed to:`);
+        subscriptions.forEach(sub => {
+            console.log(`  - ${sub.topic}`);
+        });
+    }
+
+    async onPublish(packet, client) {
+        if (!client || packet.topic.startsWith('$SYS')) {
+            return;
+        }
+
+        const topic = packet.topic;
+        const payload = packet.payload.toString();
+
+        if (topic === 'esp32/sensors/data') {
+            await this.handleSensorData(payload, client);
+        } else if (topic === 'esp32/heartbeat') {
+            await this.handleHeartbeat(payload, client);
+        } else if (topic === 'esp32/servo/ack') {
+            await this.handleServoAck(payload, client);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SENSOR DATA HANDLER - 4 sensors riêng biệt
+    // ═══════════════════════════════════════════════════════════════
+
+    async handleSensorData(payload, client) {
+        try {
+            const espData = JSON.parse(payload);
+            const { 
+                gateway_id, gateway_ip, gateway_mac,
+                node_id, node_ip, node_mac,
+                sensors,  // ARRAY OF 4 SENSORS
+                sensor_timestamp, gateway_timestamp, 
+                sensor_rssi, gateway_rssi
+            } = espData;
+
+            if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
+                console.log(`Gateway not whitelisted: ${gateway_id}`);
+                return;
+            }
+
+            if (!deviceWhiteList.isNodeAllowed(node_id)) {
+                console.log(`Node not whitelisted: ${node_id}`);
+                return;
+            }
+
+            const filteredSensors = (sensors || []).filter(sensor => deviceWhiteList.isSensorAllowed(sensor.id));
+            if (filteredSensors.length === 0) {
+                console.log(`No whitelisted sensors for node ${node_id}`);
+                return;
+            }
+
+            // 2. Rate Limiting
+            const limiter = this.getRateLimiter(gateway_id);
+            if (!limiter.consume(1)) {
+                console.log(`Rate limit exceeded: ${gateway_id}`);
+                return;
+            }
+
+            // 3. Log received data
+            console.log(`\n✓ Data received from ${node_id}:`);
+            console.log(`  Gateway: ${gateway_id} (MAC: ${gateway_mac})`);
+            console.log(`  Node: ${node_id} (MAC: ${node_mac})`);
+            console.log(`  Sensors count: ${filteredSensors.length}`);
+            // Log từng sensor
+            if (filteredSensors && Array.isArray(filteredSensors)) {
+                filteredSensors.forEach(sensor => {
+                    console.log(`    - ${sensor.name} (${sensor.id}): ${sensor.value} ${sensor.unit}`);
+                });
+            }
+
+            // 4. XỬ LÝ 4 SENSORS - Convert sang devices array
+            const devices = [];
+            
+            if (filteredSensors && Array.isArray(filteredSensors)) {
+                filteredSensors.forEach(sensor => {
+                    const device = {
+                        id: sensor.id,
+                        type: sensor.type,
+                        name: sensor.name,
+                        value: sensor.value,
+                        unit: sensor.unit,
+                        timestamp: new Date(gateway_timestamp)
+                    };
+                    
+                    // Thêm raw value nếu có
+                    if (sensor.raw !== undefined) {
+                        device.raw = sensor.raw;
+                    }
+                    
+                    // Thêm status nếu có
+                    if (sensor.status !== undefined) {
+                        device.status = sensor.status;
+                    }
+                    
+                    devices.push(device);
+                });
+            }
+
+            // 5. TẠO NODE OBJECT
+            const nodeData = {
+                id: node_id,
+                name: `Environmental Node ${node_id === 'node-001' ? '#1' : '#2'}`,
+                ip: node_ip || null,
+                mac: node_mac || null,
+                status: 'active',
+                last_seen: new Date(gateway_timestamp),
+                rssi: sensor_rssi,
+                devices: devices  // 4 sensors riêng biệt
+            };
+
+            // 6. BUFFER LOGIC
+            if (!this.nodeBuffer.has(gateway_id)) {
+                this.nodeBuffer.set(gateway_id, {
+                    gateway_info: {
+                        id: gateway_id,
+                        name: gateway.name || 'Main Gateway',
+                        ip: gateway_ip || null,
+                        mac: gateway_mac || null,
+                        status: 'online',
+                        lastSeen: new Date(gateway_timestamp)
+                    },
+                    nodes: {},
+                    timer: null
+                });
+            }
+
+            const buffer = this.nodeBuffer.get(gateway_id);
+            
+            buffer.nodes[node_id] = nodeData;
+            buffer.gateway_info.lastSeen = new Date(gateway_timestamp);
+
+            console.log(`Buffered: ${Object.keys(buffer.nodes).length}/2 nodes`);
+
+            if (buffer.timer) {
+                clearTimeout(buffer.timer);
+            }
+
+            const nodeCount = Object.keys(buffer.nodes).length;
+            
+            if (nodeCount === 2) {
+                console.log(`Both nodes received! Saving to MongoDB...`);
+                await this.saveBufferedData(gateway_id);
+            } else {
+                console.log(`Waiting for second node (timeout: ${this.BUFFER_TIMEOUT}ms)...`);
+                buffer.timer = setTimeout(async () => {
+                    console.log(`\nTimeout! Saving with ${nodeCount} node(s)...`);
+                    await this.saveBufferedData(gateway_id);
+                }, this.BUFFER_TIMEOUT);
+            }
+
+        } catch (error) {
+            console.error('Failed to handle sensor data:', error.message);
+            console.error('Stack:', error.stack);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LƯU BUFFER VÀO MONGODB
+    // ═══════════════════════════════════════════════════════════════
+    
+    async saveBufferedData(gateway_id) {
+        try {
+            if (!this.nodeBuffer.has(gateway_id)) {
+                return;
+            }
+
+            const buffer = this.nodeBuffer.get(gateway_id);
+            
+            if (buffer.timer) {
+                clearTimeout(buffer.timer);
+                buffer.timer = null;
+            }
+
+            const document = {
+                gateway: {
+                    ...buffer.gateway_info,
+                    nodes: Object.values(buffer.nodes)
+                },
+                received_at: new Date()
+            };
+
+            if (this.db) {
+                const result = await this.db.collection('sensor_readings').insertOne(document);
+                console.log(`    New document created in MongoDB`);
+                console.log(`    Document ID: ${result.insertedId}`);
+                console.log(`    Nodes: ${Object.keys(buffer.nodes).join(', ')}`);
+                
+                // Log sensors count
+                Object.values(buffer.nodes).forEach(node => {
+                    console.log(`      ${node.id}: ${node.devices.length} sensors`);
+                });
+            } else {
+                console.log(`MongoDB not connected`);
+            }
+
+            this.nodeBuffer.delete(gateway_id);
+            console.log(`Buffer cleared for ${gateway_id}\n`);
+
+        } catch (error) {
+            console.error('Failed to save buffered data:', error.message);
+        }
+    }
+
+    async handleHeartbeat(payload, client) {
+        try {
+            const data = JSON.parse(payload);
+            const { gateway_id, status, uptime, timestamp } = data;
+
+            if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
+                console.log(`Heartbeat from non-whitelisted gateway: ${gateway_id}`);
+                return;
+            }
+
+            console.log(`Heartbeat: ${gateway_id} (${status})`);
+
+            if (this.db) {
+                await this.db.collection('heartbeats').insertOne({
+                    gateway_id,
+                    status,
+                    uptime,
+                    timestamp: new Date(timestamp),
+                    received_at: new Date()
+                });
+            }
+        } catch (error) {
+            console.error('Heartbeat error:', error.message);
+        }
+    }
+
+    async handleServoAck(payload, client) {
+        try {
+            const data = JSON.parse(payload);
+            if (!deviceWhiteList.isGatewayAllowed(data.gateway_id)) {
+                console.log('Servo ACK from non-whitelisted gateway: ', data.gateway_id);
+                return;
+            }
+
+            if (!deviceWhiteList.isSensorAllowed(data.device_id)) {
+                console.log('Servo ACK for non-whitelisted sensor: ', data.device_id);
+                return;
+            }
+
+            console.log('✓ Servo ACK: ', data.device_id, ' -> ', data.status);
+            if (this.db) {
+                await this.db.collection('servo_acks').insertOne({
+                    ...data,
+                    timestamp: new Date(data.timestamp),
+                    received_at: new Date()
+                });
+            }
+        } catch (error) {
+            console.error('Servo ACK error:', error.message);
+        }
+    }
+
+    onClientError(client, error) {
+        console.error(`[MQTT ERROR] ${client.id}:`, error.message);
+    }
+
+    onConnectionError(client, error) {
+        console.error(`[MQTT] Connection error:`, error.message);
+    }
+}
+
+module.exports = MQTTHandlers;
