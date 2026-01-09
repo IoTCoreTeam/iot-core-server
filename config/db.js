@@ -1,39 +1,43 @@
 const { MongoClient } = require('mongodb')
-const { MONGODB_URI, DATABASE_NAME } = require('./env')
+const env = require('./env')
 
-let clientInstance = null
-let databaseInstance = null
+let client = null
+let db = null
 
 const connect = async () => {
-  if (databaseInstance) {
-    return databaseInstance
+  if (db) return db
+
+  const uri = env.MONGODB_URI
+  if (!uri) {
+    throw new Error('MONGODB_URI is not defined in .env')
   }
 
-  if (!MONGODB_URI) {
-    throw new Error('MONGODB_URI is not configured')
+  try {
+    client = new MongoClient(uri)
+    await client.connect()
+    console.log('Successfully connected to MongoDB')
+
+    db = client.db(env.DATABASE_NAME)
+    return db
+  } catch (error) {
+    console.error('MongoDB connection error:', error)
+    throw error
   }
-
-  const client = new MongoClient(MONGODB_URI)
-  await client.connect()
-
-  clientInstance = client
-  databaseInstance = client.db(DATABASE_NAME)
-
-  return databaseInstance
 }
 
 const getDb = () => {
-  if (!databaseInstance) {
-    throw new Error('Database connection is not ready')
+  if (!db) {
+    throw new Error('Database not initialized. Call connect() first.')
   }
-  return databaseInstance
+  return db
 }
 
 const close = async () => {
-  if (clientInstance) {
-    await clientInstance.close()
-    clientInstance = null
-    databaseInstance = null
+  if (client) {
+    await client.close()
+    client = null
+    db = null
+    console.log('MongoDB connection closed')
   }
 }
 

@@ -13,7 +13,7 @@ class MQTTHandlers {
         this.dbGetter = dependencies.db;
         this.aedes = dependencies.aedes;
         this.config = dependencies.config;
-        
+
         this.nodeBuffer = new Map();
         this.BUFFER_TIMEOUT = 10000;
     }
@@ -61,14 +61,15 @@ class MQTTHandlers {
     async handleSensorData(payload, client) {
         try {
             const espData = JSON.parse(payload);
-            const { 
+            const {
                 gateway_id, gateway_ip, gateway_mac,
                 node_id, node_ip, node_mac,
                 sensors,  // ARRAY OF 4 SENSORS
-                sensor_timestamp, gateway_timestamp, 
+                sensor_timestamp, gateway_timestamp,
                 sensor_rssi, gateway_rssi
             } = espData;
 
+            /*
             if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
                 console.log(`Gateway not whitelisted: ${gateway_id}`);
                 return;
@@ -78,12 +79,15 @@ class MQTTHandlers {
                 console.log(`Node not whitelisted: ${node_id}`);
                 return;
             }
-
-            const filteredSensors = (sensors || []).filter(sensor => deviceWhiteList.isSensorAllowed(sensor.id));
+            */
+            // Bypassing whitelist for testing
+            const filteredSensors = sensors || []; // (sensors || []).filter(sensor => deviceWhiteList.isSensorAllowed(sensor.id));
+            /*
             if (filteredSensors.length === 0) {
                 console.log(`No whitelisted sensors for node ${node_id}`);
                 return;
             }
+            */
 
             // 2. Rate Limiting
             const limiter = this.getRateLimiter(gateway_id);
@@ -106,7 +110,7 @@ class MQTTHandlers {
 
             // 4. XỬ LÝ 4 SENSORS - Convert sang devices array
             const devices = [];
-            
+
             if (filteredSensors && Array.isArray(filteredSensors)) {
                 filteredSensors.forEach(sensor => {
                     const device = {
@@ -117,17 +121,17 @@ class MQTTHandlers {
                         unit: sensor.unit,
                         timestamp: new Date(gateway_timestamp)
                     };
-                    
+
                     // Thêm raw value nếu có
                     if (sensor.raw !== undefined) {
                         device.raw = sensor.raw;
                     }
-                    
+
                     // Thêm status nếu có
                     if (sensor.status !== undefined) {
                         device.status = sensor.status;
                     }
-                    
+
                     devices.push(device);
                 });
             }
@@ -161,7 +165,7 @@ class MQTTHandlers {
             }
 
             const buffer = this.nodeBuffer.get(gateway_id);
-            
+
             buffer.nodes[node_id] = nodeData;
             buffer.gateway_info.lastSeen = new Date(gateway_timestamp);
 
@@ -172,7 +176,7 @@ class MQTTHandlers {
             }
 
             const nodeCount = Object.keys(buffer.nodes).length;
-            
+
             if (nodeCount === 2) {
                 console.log(`Both nodes received! Saving to MongoDB...`);
                 await this.saveBufferedData(gateway_id);
@@ -193,7 +197,7 @@ class MQTTHandlers {
     // ═══════════════════════════════════════════════════════════════
     // LƯU BUFFER VÀO MONGODB
     // ═══════════════════════════════════════════════════════════════
-    
+
     async saveBufferedData(gateway_id) {
         try {
             if (!this.nodeBuffer.has(gateway_id)) {
@@ -201,7 +205,7 @@ class MQTTHandlers {
             }
 
             const buffer = this.nodeBuffer.get(gateway_id);
-            
+
             if (buffer.timer) {
                 clearTimeout(buffer.timer);
                 buffer.timer = null;
@@ -220,7 +224,7 @@ class MQTTHandlers {
                 console.log(`    New document created in MongoDB`);
                 console.log(`    Document ID: ${result.insertedId}`);
                 console.log(`    Nodes: ${Object.keys(buffer.nodes).join(', ')}`);
-                
+
                 // Log sensors count
                 Object.values(buffer.nodes).forEach(node => {
                     console.log(`      ${node.id}: ${node.devices.length} sensors`);

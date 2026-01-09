@@ -12,10 +12,12 @@
     "test:mongo": "node test/checkMongoConnection.js"
   },
   "dependencies": {
+    "aedes": "^0.51.3",
     "axios": "^1.13.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "mongodb": "^6.12.0",
-    "mqtt": "^5.14.1"
+    "mqtt": "^5.14.1",
+    "socket.io": "^4.8.3"
   }
 }
