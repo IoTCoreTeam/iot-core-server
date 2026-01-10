@@ -9,6 +9,7 @@ const { router: whiteListRouter } = require('./routes/routeWhiteList')
 const { connect, close, getDb } = require('./config/db')
 const env = require('./config/env')
 const deviceWhiteList = require('./services/deviceWhiteList')
+const SSEGatewayService = require('./services/sseGatewayService')
 const MQTTHandlers = require('./mqtt/mqttHandle')
 
 // Rate limiter class
@@ -55,6 +56,9 @@ app.get('/health', (_req, res) => { res.json({ status: 'ok' }) })
 app.use('/v1/sensors', routeMetricData)
 app.use('/v1/whitelist', whiteListRouter)
 
+const sseGatewayService = new SSEGatewayService()
+sseGatewayService.registerRoute(app)
+
 // Socket.IO Logic
 io.on('connection', (socket) => {
   console.log('WebSocket client connected:', socket.id)
@@ -94,7 +98,8 @@ const mqttHandlers = new MQTTHandlers({
   getRateLimiter,
   db: getDb,
   aedes,
-  config: env
+  config: env,
+  sseService: sseGatewayService
 })
 
 aedes.on('client', (client) => mqttHandlers.onClientConnected(client))

@@ -5,13 +5,14 @@ const mqtt = require('mqtt');
 // ═══════════════════════════════════════════════════════════════
 const MQTT_CONFIG = {
   broker: 'mqtt://localhost:1883',
-  clientId: `gateway_simulator_${Math.random().toString(16).slice(3)}`,
+  clientId: `gateway_simulator_${Math.random().toString(16).slice(3)}` ,
   topics: {
     sensors: 'esp32/sensors/data',
     heartbeat: 'esp32/heartbeat',
     servoAck: 'esp32/servo/ack'
   },
-  interval: 10000 // 10 giây
+  interval: 10000, // 10 giây
+  heartbeatInterval: 10000 // heartbeat every 10 seconds
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -125,7 +126,7 @@ client.on('connect', () => {
   publishHeartbeat();
 
   setInterval(publishAllSensors, MQTT_CONFIG.interval);
-  setInterval(publishHeartbeat, 30000);
+  setInterval(publishHeartbeat, MQTT_CONFIG.heartbeatInterval);
 });
 
 client.on('error', (err) => console.error('❌ Error:', err.message));

@@ -13,6 +13,7 @@ class MQTTHandlers {
         this.dbGetter = dependencies.db;
         this.aedes = dependencies.aedes;
         this.config = dependencies.config;
+        this.sseService = dependencies.sseService;
 
         this.nodeBuffer = new Map();
         this.BUFFER_TIMEOUT = 10000;
@@ -59,7 +60,9 @@ class MQTTHandlers {
     // ═══════════════════════════════════════════════════════════════
 
     async handleSensorData(payload, client) {
+        console.log("handleSensorData: "+payload);
         try {
+            console.log('Raw sensor payload received:', payload);
             const espData = JSON.parse(payload);
             const {
                 gateway_id, gateway_ip, gateway_mac,
@@ -80,8 +83,13 @@ class MQTTHandlers {
                 return;
             }
             */
+            const isRegistered = deviceWhiteList.isGatewayAllowed(gateway_id);
             // Bypassing whitelist for testing
             const filteredSensors = sensors || []; // (sensors || []).filter(sensor => deviceWhiteList.isSensorAllowed(sensor.id));
+
+            if (gateway_id) {
+                deviceWhiteList.setGatewayStatus(gateway_id, 'online');
+            }
             /*
             if (filteredSensors.length === 0) {
                 console.log(`No whitelisted sensors for node ${node_id}`);
@@ -153,10 +161,11 @@ class MQTTHandlers {
                 this.nodeBuffer.set(gateway_id, {
                     gateway_info: {
                         id: gateway_id,
-                        name: gateway.name || 'Main Gateway',
+                        name: 'Main Gateway',
                         ip: gateway_ip || null,
                         mac: gateway_mac || null,
-                        status: 'online',
+                        status: deviceWhiteList.getGatewayStatus(gateway_id),
+                        registered: isRegistered,
                         lastSeen: new Date(gateway_timestamp)
                     },
                     nodes: {},
@@ -168,8 +177,29 @@ class MQTTHandlers {
 
             buffer.nodes[node_id] = nodeData;
             buffer.gateway_info.lastSeen = new Date(gateway_timestamp);
+            buffer.gateway_info.ip = gateway_ip || buffer.gateway_info.ip;
+            buffer.gateway_info.mac = gateway_mac || buffer.gateway_info.mac;
+            buffer.gateway_info.status = deviceWhiteList.getGatewayStatus(gateway_id);
+            buffer.gateway_info.registered = isRegistered;
 
             console.log(`Buffered: ${Object.keys(buffer.nodes).length}/2 nodes`);
+
+            if (this.sseService) {
+                const gatewayPayload = {
+                    id: buffer.gateway_info.id,
+                    name: buffer.gateway_info.name,
+                    ip: buffer.gateway_info.ip,
+                    mac: buffer.gateway_info.mac,
+                    status: buffer.gateway_info.status,
+                    registered: buffer.gateway_info.registered,
+                    lastSeen: buffer.gateway_info.lastSeen
+                        ? buffer.gateway_info.lastSeen
+                              .toISOString()
+                              .replace(/Z$/, '+00:00')
+                        : null
+                };
+                this.sseService.sendGatewayUpdate(gatewayPayload);
+            }
 
             if (buffer.timer) {
                 clearTimeout(buffer.timer);
@@ -219,8 +249,16 @@ class MQTTHandlers {
                 received_at: new Date()
             };
 
+            const gatewayStatus = deviceWhiteList.getGatewayStatus(gateway_id);
+            if (gatewayStatus !== 'online' || buffer.gateway_info.registered !== true) {
+                console.log(`Skipping MongoDB write for ${gateway_id} (status=${gatewayStatus}, registered=${buffer.gateway_info.registered})`);
+                this.nodeBuffer.delete(gateway_id);
+                return;
+            }
+
             if (this.db) {
-                const result = await this.db.collection('sensor_readings').insertOne(document);
+                const sensorCollectionName = this.config?.SENSOR_COLLECTION_NAME || 'sensor_readings'
+                const result = await this.db.collection(sensorCollectionName).insertOne(document);
                 console.log(`    New document created in MongoDB`);
                 console.log(`    Document ID: ${result.insertedId}`);
                 console.log(`    Nodes: ${Object.keys(buffer.nodes).join(', ')}`);
@@ -242,28 +280,54 @@ class MQTTHandlers {
     }
 
     async handleHeartbeat(payload, client) {
+        console.log("handleHeartbeat: " + payload);
         try {
             const data = JSON.parse(payload);
             const { gateway_id, status, uptime, timestamp } = data;
 
-            if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
+            const normalizedStatus =
+                typeof status === 'string' &&
+                status.trim().toLowerCase() === 'online'
+                    ? 'online'
+                    : 'inactive';
+
+            const registered = deviceWhiteList.isGatewayAllowed(gateway_id);
+            if (!registered) {
                 console.log(`Heartbeat from non-whitelisted gateway: ${gateway_id}`);
-                return;
             }
 
-            console.log(`Heartbeat: ${gateway_id} (${status})`);
+            deviceWhiteList.setGatewayStatus(gateway_id, normalizedStatus);
+            console.log(`Heartbeat: ${gateway_id} (${normalizedStatus}) registered=${registered}`);
 
-            if (this.db) {
+            if (
+                this.db &&
+                normalizedStatus === 'online' &&
+                registered &&
+                gateway_id
+            ) {
                 await this.db.collection('heartbeats').insertOne({
                     gateway_id,
-                    status,
+                    status: normalizedStatus,
                     uptime,
-                    timestamp: new Date(timestamp),
-                    received_at: new Date()
+                    timestamp: timestamp ? new Date(timestamp) : new Date(),
+                    received_at: new Date(),
                 });
             }
+
+            if (this.sseService) {
+                const lastSeen = timestamp ? new Date(timestamp) : new Date();
+                const gatewayPayload = {
+                    id: gateway_id,
+                    name: `Gateway ${gateway_id}`,
+                    status: normalizedStatus,
+                    registered,
+                    lastSeen: lastSeen.toISOString().replace(/Z$/, '+00:00'),
+                };
+
+                this.sseService.sendGatewayUpdate(gatewayPayload);
+            }
         } catch (error) {
-            console.error('Heartbeat error:', error.message);
+            console.error("Heartbeat error:", error.message);
         }
     }
 
