@@ -246,7 +246,8 @@ class MQTTHandlers {
                     ...buffer.gateway_info,
                     nodes: Object.values(buffer.nodes)
                 },
-                received_at: new Date()
+                received_at: new Date(),
+                event_type: 'sensor_reading'
             };
 
             const gatewayStatus = deviceWhiteList.getGatewayStatus(gateway_id);
@@ -305,12 +306,14 @@ class MQTTHandlers {
                 registered &&
                 gateway_id
             ) {
-                await this.db.collection('heartbeats').insertOne({
+                const gatewayCollectionName = this.config?.SENSOR_COLLECTION_NAME || 'sensor_readings'
+                await this.db.collection(gatewayCollectionName).insertOne({
                     gateway_id,
                     status: normalizedStatus,
                     uptime,
                     timestamp: timestamp ? new Date(timestamp) : new Date(),
                     received_at: new Date(),
+                    event_type: 'heartbeat'
                 });
             }
 
@@ -344,9 +347,11 @@ class MQTTHandlers {
                 return;
             }
 
-            console.log('✓ Servo ACK: ', data.device_id, ' -> ', data.status);
+            console.log('Servo ACK: ', data.device_id, ' -> ', data.status);
+
             if (this.db) {
-                await this.db.collection('servo_acks').insertOne({
+                const servoAckCollectionName = this.config?.SERVO_ACK_COLLECTION_NAME || 'servo_acks';
+                await this.db.collection(servoAckCollectionName).insertOne({
                     ...data,
                     timestamp: new Date(data.timestamp),
                     received_at: new Date()

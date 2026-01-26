@@ -3,7 +3,7 @@
 Small Node.js service that hosts:
 - an embedded MQTT broker (`aedes`, port 1883) for gateways to publish sensor data.
 - an HTTP + WebSocket API (port 8017) that fronts MongoDB data and streams real-time gateway events.
-- a MongoDB backend that persistently stores sensor readings and heartbeats.
+- a MongoDB backend that persistently stores gateway payloads (sensor readings + heartbeats) inside the shared collection defined by `SENSOR_COLLECTION_NAME`.
 
 ---
 
@@ -17,7 +17,7 @@ Small Node.js service that hosts:
    Required values:
    - `MONGODB_URI`: connection string for MongoDB.
    - `DATABASE_NAME`: database name (default `sensor_readings`).
-   - `SENSOR_COLLECTION_NAME`: collection for readings (default `sensor_readings`).
+-   - `SENSOR_COLLECTION_NAME`: collection for gateway data (sensor readings + heartbeats, default `sensor_readings`).
    - `APP_HOST` / `APP_PORT`: HTTP server binding.
    - `MQTT_PORT`: broker port (1883 default).
    - Token and integration overrides as needed.
@@ -65,7 +65,7 @@ Small Node.js service that hosts:
 - **MQTT ingestion** with buffering + per-gateway rate limiting before persisting to MongoDB.
 - **Whitelist-aware processing**: only registered gateways marked as `online` are persisted; whitelist snapshot endpoint includes current statuses.
 - **Server-Sent Events** on `/events/gateways` to stream gateway metadata (id, name, status, last seen) to clients.
-- **Heartbeat tracking** that normalizes statuses and writes to the `heartbeats` collection when gateways are active.
+- **Heartbeat tracking** that normalizes statuses and writes heartbeat events into the shared `SENSOR_COLLECTION_NAME` collection using an `event_type: 'heartbeat'` marker, so sensor data and heartbeats live together.
 - **Sensor data API** (`/v1/sensors`) backed by `sensorService.js`, plus Socket.IO for real-time WebSocket clients.
 - **Simulator** that emits sensor readings and heartbeats every 10 seconds and obeys configurable heartbeat intervals.
 
@@ -88,7 +88,7 @@ Small Node.js service that hosts:
 3. **Heartbeat handling**
    - Payloads are normalized (`status` coerced to `online`/`inactive`) and the whitelist status map is updated.
    - Heartbeats from non-whitelisted gateways are logged and ignored.
-   - Only `online` and registered gateways insert documents into the `heartbeats` collection, storing timestamps and uptime.
+- Only `online` and registered gateways insert documents into `SENSOR_COLLECTION_NAME` with an `event_type` marker (heartbeat), storing timestamps and uptime.
    - The SSE service receives a gateway update for every heartbeat to keep clients in sync.
 
 4. **Buffer & cleanup**
@@ -96,4 +96,4 @@ Small Node.js service that hosts:
    - If MongoDB isn’t ready when the timer fires, the handler logs and keeps trying until the buffer is processed.
    - Errors during parsing/logging are caught and reported without crashing the broker.
 
-This flow keeps data consistent: only approved gateways contribute to MongoDB, status changes propagate to SSE consumers, and heartbeats reinforce whether a gateway can write.
+This flow keeps data consistent: only approved gateways contribute to MongoDB, status changes propagate to SSE consumers, heartbeats reinforce whether a gateway can write, and all gateway payloads are unified inside the collection defined by `SENSOR_COLLECTION_NAME` (differentiated by `event_type`).

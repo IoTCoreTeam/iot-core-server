@@ -10,7 +10,8 @@ const env = {
   APP_PORT: process.env.APP_PORT || '8017',
   MONGODB_URI: process.env.MONGODB_URI,
   DATABASE_NAME: process.env.DATABASE_NAME || 'sensor_readings',
-  SENSOR_COLLECTION_NAME: process.env.SENSOR_COLLECTION_NAME || 'sensor_readings'
+  SENSOR_COLLECTION_NAME: process.env.SENSOR_COLLECTION_NAME || 'sensor_readings',
+  SERVO_ACK_COLLECTION_NAME: process.env.SERVO_ACK_COLLECTION_NAME || 'servo_acks'
 }
 
 module.exports = env

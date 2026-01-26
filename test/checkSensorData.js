@@ -1,19 +1,22 @@
+const env = require('../config/env')
 const { connect, close } = require('../config/db')
+
+const sensorCollectionName = env.SENSOR_COLLECTION_NAME
 
 async function checkSensorData() {
     try {
         const db = await connect()
 
         console.log('='.repeat(70))
-        console.log('Checking sensor_readings collection')
+        console.log(`Checking ${sensorCollectionName} collection`)
         console.log('='.repeat(70))
 
-        const count = await db.collection('sensor_readings').countDocuments()
+        const count = await db.collection(sensorCollectionName).countDocuments()
         console.log(`\nTotal documents: ${count}`)
 
         if (count > 0) {
             // Get latest 5 documents
-            const docs = await db.collection('sensor_readings')
+            const docs = await db.collection(sensorCollectionName)
                 .find()
                 .sort({ received_at: -1 })
                 .limit(5)
@@ -42,7 +45,7 @@ async function checkSensorData() {
 
             // Count by gateway
             console.log('\n📊 Statistics by Gateway:')
-            const gatewayStats = await db.collection('sensor_readings')
+            const gatewayStats = await db.collection(sensorCollectionName)
                 .aggregate([
                     {
                         $group: {
