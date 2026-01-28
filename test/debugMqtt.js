@@ -28,9 +28,16 @@ async function debugMqttAndMongo() {
             console.log('Latest document structure:')
             console.log(JSON.stringify(latest[0], null, 2))
 
-            const gateways = await db.collection(sensorCollectionName)
+            const gateways = new Set()
+            const flattenedGateways = await db.collection(sensorCollectionName)
+                .distinct('gateway_id')
+            flattenedGateways.forEach((id) => id && gateways.add(id))
+
+            const legacyGateways = await db.collection(sensorCollectionName)
                 .distinct('gateway.id')
-            console.log(`Unique gateways: ${gateways.join(', ')}`)
+            legacyGateways.forEach((id) => id && gateways.add(id))
+
+            console.log(`Unique gateways: ${Array.from(gateways).join(', ')}`)
 
             const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
             const recentCount = await db.collection(sensorCollectionName)

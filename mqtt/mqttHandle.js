@@ -68,8 +68,7 @@ class MQTTHandlers {
                 gateway_id, gateway_ip, gateway_mac,
                 node_id, node_ip, node_mac,
                 sensors,  // ARRAY OF 4 SENSORS
-                sensor_timestamp, gateway_timestamp,
-                sensor_rssi, gateway_rssi
+                sensor_timestamp, gateway_timestamp
             } = espData;
 
             /*
@@ -175,14 +174,15 @@ class MQTTHandlers {
 
             const buffer = this.nodeBuffer.get(gateway_id);
 
-            buffer.nodes[node_id] = nodeData;
+            // Always keep only the latest node payload and save immediately
+            buffer.nodes = { [node_id]: nodeData };
             buffer.gateway_info.lastSeen = new Date(gateway_timestamp);
             buffer.gateway_info.ip = gateway_ip || buffer.gateway_info.ip;
             buffer.gateway_info.mac = gateway_mac || buffer.gateway_info.mac;
             buffer.gateway_info.status = deviceWhiteList.getGatewayStatus(gateway_id);
             buffer.gateway_info.registered = isRegistered;
 
-            console.log(`Buffered: ${Object.keys(buffer.nodes).length}/2 nodes`);
+            console.log(`Buffered: ${Object.keys(buffer.nodes).length} node(s)`);
 
             if (this.sseService) {
                 const gatewayPayload = {
@@ -203,20 +203,11 @@ class MQTTHandlers {
 
             if (buffer.timer) {
                 clearTimeout(buffer.timer);
+                buffer.timer = null;
             }
 
-            const nodeCount = Object.keys(buffer.nodes).length;
-
-            if (nodeCount === 2) {
-                console.log(`Both nodes received! Saving to MongoDB...`);
-                await this.saveBufferedData(gateway_id);
-            } else {
-                console.log(`Waiting for second node (timeout: ${this.BUFFER_TIMEOUT}ms)...`);
-                buffer.timer = setTimeout(async () => {
-                    console.log(`\nTimeout! Saving with ${nodeCount} node(s)...`);
-                    await this.saveBufferedData(gateway_id);
-                }, this.BUFFER_TIMEOUT);
-            }
+            console.log(`Saving ${node_id} immediately (no buffering)...`);
+            await this.saveBufferedData(gateway_id);
 
         } catch (error) {
             console.error('Failed to handle sensor data:', error.message);
@@ -241,14 +232,22 @@ class MQTTHandlers {
                 buffer.timer = null;
             }
 
-            const document = {
-                gateway: {
-                    ...buffer.gateway_info,
-                    nodes: Object.values(buffer.nodes)
-                },
-                received_at: new Date(),
-                event_type: 'sensor_reading'
-            };
+            const receivedAt = new Date();
+            const nodes = Object.values(buffer.nodes);
+            const documents = nodes.map((node) => ({
+                gateway_id: buffer.gateway_info.id,
+                gateway_ip: buffer.gateway_info.ip || null,
+                gateway_mac: buffer.gateway_info.mac || null,
+                node_id: node.id,
+                node_mac: node.mac || null,
+                measurements: (node.devices || []).map((device) => ({
+                    sensor_id: device.id,
+                    metric: device.type,
+                    value: device.value,
+                    unit: device.unit,
+                })),
+                received_at: receivedAt,
+            }));
 
             const gatewayStatus = deviceWhiteList.getGatewayStatus(gateway_id);
             if (gatewayStatus !== 'online' || buffer.gateway_info.registered !== true) {
@@ -257,11 +256,26 @@ class MQTTHandlers {
                 return;
             }
 
+            if (!documents.length) {
+                console.log(`No node data to persist for ${gateway_id}`);
+                this.nodeBuffer.delete(gateway_id);
+                return;
+            }
+
             if (this.db) {
+                console.log(
+                    `    Gateway status=${buffer.gateway_info.status || 'unknown'} lastSeen=${buffer.gateway_info.lastSeen || 'n/a'}`
+                );
+                Object.values(buffer.nodes).forEach(node => {
+                    console.log(
+                        `    Node ${node.id} status=${node.status || 'unknown'} lastSeen=${node.last_seen || 'n/a'}`
+                    );
+                });
+
                 const sensorCollectionName = this.config?.SENSOR_COLLECTION_NAME || 'sensor_readings'
-                const result = await this.db.collection(sensorCollectionName).insertOne(document);
-                console.log(`    New document created in MongoDB`);
-                console.log(`    Document ID: ${result.insertedId}`);
+                const result = await this.db.collection(sensorCollectionName).insertMany(documents);
+                console.log(`    New documents created in MongoDB`);
+                console.log(`    Document IDs: ${Object.values(result.insertedIds).join(', ')}`);
                 console.log(`    Nodes: ${Object.keys(buffer.nodes).join(', ')}`);
 
                 // Log sensors count
@@ -300,35 +314,7 @@ class MQTTHandlers {
             deviceWhiteList.setGatewayStatus(gateway_id, normalizedStatus);
             console.log(`Heartbeat: ${gateway_id} (${normalizedStatus}) registered=${registered}`);
 
-            if (
-                this.db &&
-                normalizedStatus === 'online' &&
-                registered &&
-                gateway_id
-            ) {
-                const gatewayCollectionName = this.config?.SENSOR_COLLECTION_NAME || 'sensor_readings'
-                await this.db.collection(gatewayCollectionName).insertOne({
-                    gateway_id,
-                    status: normalizedStatus,
-                    uptime,
-                    timestamp: timestamp ? new Date(timestamp) : new Date(),
-                    received_at: new Date(),
-                    event_type: 'heartbeat'
-                });
-            }
-
-            if (this.sseService) {
-                const lastSeen = timestamp ? new Date(timestamp) : new Date();
-                const gatewayPayload = {
-                    id: gateway_id,
-                    name: `Gateway ${gateway_id}`,
-                    status: normalizedStatus,
-                    registered,
-                    lastSeen: lastSeen.toISOString().replace(/Z$/, '+00:00'),
-                };
-
-                this.sseService.sendGatewayUpdate(gatewayPayload);
-            }
+            // Heartbeat: log only (no MongoDB write, no SSE broadcast)
         } catch (error) {
             console.error("Heartbeat error:", error.message);
         }

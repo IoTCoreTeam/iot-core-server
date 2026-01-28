@@ -14,6 +14,7 @@ class DeviceActivityService {
       timeout: REQUEST_TIMEOUT_MS,
     });
     this.whitelist = this.createEmptyWhitelist();
+    this.manualWhitelist = this.createEmptyWhitelist();
     this.pollTimer = null;
     this.isFetching = false;
     this.gatewayStatuses = new Map();
@@ -28,6 +29,17 @@ class DeviceActivityService {
       nodes: new Set(),
       nodeControllers: new Set(),
       nodeSensors: new Set(),
+    };
+  }
+
+  mergeWhitelists(primary, secondary) {
+    const base = primary || this.createEmptyWhitelist();
+    const extra = secondary || this.createEmptyWhitelist();
+    return {
+      gateways: new Set([...base.gateways, ...extra.gateways]),
+      nodes: new Set([...base.nodes, ...extra.nodes]),
+      nodeControllers: new Set([...base.nodeControllers, ...extra.nodeControllers]),
+      nodeSensors: new Set([...base.nodeSensors, ...extra.nodeSensors]),
     };
   }
 
@@ -49,13 +61,14 @@ class DeviceActivityService {
 
       const { gateways = [], nodes = [], node_controllers = [], node_sensors = [] } = payload.data;
 
-      this.whitelist = {
+      const remoteWhitelist = {
         gateways: new Set(gateways.map((value) => String(value))),
         nodes: new Set(nodes.map((value) => String(value))),
         nodeControllers: new Set(node_controllers.map((value) => String(value))),
         nodeSensors: new Set(node_sensors.map((value) => String(value))),
       };
-      this.syncGatewayStatuses(gateways);
+      this.whitelist = this.mergeWhitelists(remoteWhitelist, this.manualWhitelist);
+      this.syncGatewayStatuses(Array.from(this.whitelist.gateways));
 
       // console.log(
       //   '[deviceActivityService] whitelist updated',
@@ -68,8 +81,8 @@ class DeviceActivityService {
       // );
     } catch (error) {
       console.error('[deviceActivityService] failed to refresh whitelist:', error.message);
-      this.whitelist = null;
-      this.gatewayStatuses = new Map();
+      this.whitelist = this.mergeWhitelists(this.createEmptyWhitelist(), this.manualWhitelist);
+      this.syncGatewayStatuses(Array.from(this.whitelist.gateways));
     } finally {
       this.isFetching = false;
     }
@@ -86,7 +99,7 @@ class DeviceActivityService {
   }
 
   overrideWhitelist({ gateways = [], nodes = [], node_controllers = [], node_sensors = [] } = {}) {
-    this.whitelist = {
+    this.manualWhitelist = {
       gateways: new Set((gateways || []).map((value) => String(value))),
       nodes: new Set((nodes || []).map((value) => String(value))),
       nodeControllers: new Set((node_controllers || []).map((value) => String(value))),
@@ -94,7 +107,8 @@ class DeviceActivityService {
     };
 
     console.log('[deviceActivityService] whitelist overridden manually');
-    this.syncGatewayStatuses(gateways);
+    this.whitelist = this.mergeWhitelists(this.whitelist, this.manualWhitelist);
+    this.syncGatewayStatuses(Array.from(this.whitelist.gateways));
   }
 
   getWhitelistSnapshot() {

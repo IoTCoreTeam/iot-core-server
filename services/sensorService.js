@@ -31,34 +31,41 @@ const getMetricData = async (query = {}) => {
   const page = Math.max(1, Number(pageParam) || 1)
   const skip = (page - 1) * limit
 
-  // NEW PIPELINE matching actual data structure:
-  // gateway.nodes[].devices[] where device = {id, type, name, value, unit, timestamp}
+  // NEW PIPELINE for flattened documents:
+  // measurements[] where measurement = {sensor_id, metric, value, unit, timestamp}
 
   const pipeline = [
-    { $unwind: '$gateway.nodes' },
-    { $unwind: '$gateway.nodes.devices' },
     {
       $match: {
-        'gateway.nodes.devices.type': sensor_type,
-        ...(sensorIds.length > 0 && { 'gateway.nodes.devices.id': { $in: sensorIds } })
+        event_type: 'sensor_reading',
+        measurements: { $exists: true, $ne: [] }
+      }
+    },
+    { $unwind: '$measurements' },
+    {
+      $match: {
+        'measurements.metric': sensor_type,
+        ...(sensorIds.length > 0 && { 'measurements.sensor_id': { $in: sensorIds } })
       }
     }
   ]
 
   const baseProjection = {
     _id: '$_id',
-    id: '$gateway.nodes.devices.id',
-    type: '$gateway.nodes.devices.type',
-    name: '$gateway.nodes.devices.name',
-    value: '$gateway.nodes.devices.value',
-    unit: '$gateway.nodes.devices.unit',
-    timestamp: '$gateway.nodes.devices.timestamp'
+    gateway_id: '$gateway_id',
+    node_id: '$node_id',
+    id: '$measurements.sensor_id',
+    type: '$measurements.metric',
+    name: '$measurements.metric',
+    value: '$measurements.value',
+    unit: '$measurements.unit',
+    timestamp: '$measurements.timestamp'
   }
 
   if (normalizedTimeField === 'sec') {
     // Return individual records sorted by timestamp
     pipeline.push(
-      { $sort: { 'gateway.nodes.devices.timestamp': -1 } },
+      { $sort: { 'measurements.timestamp': -1 } },
       { $skip: skip },
       { $limit: limit },
       { $project: baseProjection },
@@ -78,24 +85,24 @@ const getMetricData = async (query = {}) => {
       $set: {
         bucketTime: {
           $dateTrunc: {
-            date: '$gateway.nodes.devices.timestamp',
+            date: '$measurements.timestamp',
             unit: bucketUnit
           }
         }
       }
     },
-    { $sort: { 'gateway.nodes.devices.timestamp': -1 } },
+    { $sort: { 'measurements.timestamp': -1 } },
     {
       $group: {
         _id: {
-          sensorId: '$gateway.nodes.devices.id',
+          sensorId: '$measurements.sensor_id',
           bucketTime: '$bucketTime'
         },
         doc: { $first: '$$ROOT' }
       }
     },
     { $replaceRoot: { newRoot: '$doc' } },
-    { $sort: { 'gateway.nodes.devices.timestamp': -1 } },
+    { $sort: { 'measurements.timestamp': -1 } },
     { $skip: skip },
     { $limit: limit },
     { $project: baseProjection },
