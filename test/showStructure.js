@@ -23,12 +23,15 @@ async function showDataStructure() {
             console.log('\n' + '='.repeat(70))
             console.log('Structure Analysis:')
             console.log('='.repeat(70))
-            console.log(`\ngateway exists: ${!!doc.gateway}`)
-            console.log(`gateway.nodes exists: ${!!doc.gateway?.nodes}`)
-            console.log(`gateway.nodes is array: ${Array.isArray(doc.gateway?.nodes)}`)
-            console.log(`gateway.nodes.length: ${doc.gateway?.nodes?.length}`)
+            console.log(`\nflattened measurements exists: ${Array.isArray(doc.measurements)}`)
+            console.log(`measurements.length: ${doc.measurements?.length || 0}`)
+            console.log(`gateway_id exists: ${!!doc.gateway_id}`)
+            console.log(`node_id exists: ${!!doc.node_id}`)
 
-            if (doc.gateway?.nodes?.[0]) {
+            if (Array.isArray(doc.measurements) && doc.measurements[0]) {
+                console.log(`\nFirst measurement structure:`)
+                console.log(JSON.stringify(doc.measurements[0], null, 2))
+            } else if (doc.gateway?.nodes?.[0]) {
                 const firstNode = doc.gateway.nodes[0]
                 console.log(`\n\nFirst node structure:`)
                 console.log(`  id: ${firstNode.id}`)

@@ -3,16 +3,28 @@ const { connect, close } = require('../config/db')
 const { SENSOR_COLLECTION_NAME } = require('../config/env')
 
 const pipeline = [
-  { $unwind: '$gateway.nodes' },
-  { $unwind: '$gateway.nodes.devices' },
   {
     $match: {
-      'gateway.nodes.devices.type': 'temperature'
+      event_type: 'sensor_reading',
+      measurements: { $exists: true, $ne: [] }
+    }
+  },
+  { $unwind: '$measurements' },
+  {
+    $match: {
+      'measurements.metric': 'temperature'
     }
   },
   {
-    $replaceRoot: {
-      newRoot: '$gateway.nodes.devices'
+    $project: {
+      _id: 0,
+      gateway_id: 1,
+      node_id: 1,
+      sensor_id: '$measurements.sensor_id',
+      metric: '$measurements.metric',
+      value: '$measurements.value',
+      unit: '$measurements.unit',
+      timestamp: '$measurements.timestamp'
     }
   },
   { $limit: 5 }
@@ -33,9 +45,10 @@ const runTestQuery = async () => {
 
     results.forEach((doc, index) => {
       console.log(`\n[${index + 1}]`, {
-        id: doc.id,
-        type: doc.type,
-        name: doc.name,
+        gateway_id: doc.gateway_id,
+        node_id: doc.node_id,
+        sensor_id: doc.sensor_id,
+        metric: doc.metric,
         value: doc.value,
         unit: doc.unit,
         timestamp: doc.timestamp
