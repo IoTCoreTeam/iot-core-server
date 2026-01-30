@@ -4,6 +4,7 @@
 
 const axios = require('axios');
 const deviceWhiteList = require('../services/deviceWhiteList');
+const { saveSensorData } = require('../services/saveSensorData');
 
 class MQTTHandlers {
     constructor(dependencies) {
@@ -60,15 +61,22 @@ class MQTTHandlers {
     // ═══════════════════════════════════════════════════════════════
 
     async handleSensorData(payload, client) {
-        console.log("handleSensorData: "+payload);
         try {
-            console.log('Raw sensor payload received:', payload);
             const espData = JSON.parse(payload);
             const {
                 gateway_id, gateway_ip, gateway_mac,
                 node_id, node_ip, node_mac,
                 sensors,  // ARRAY OF 4 SENSORS
-                sensor_timestamp, gateway_timestamp
+                sensor_timestamp, gateway_timestamp,
+                sensor_rssi
+            } = espData;
+            const {
+                sensor_id,
+                temperature,
+                humidity,
+                light,
+                rain,
+                soil,
             } = espData;
 
             /*
@@ -84,7 +92,50 @@ class MQTTHandlers {
             */
             const isRegistered = deviceWhiteList.isGatewayAllowed(gateway_id);
             // Bypassing whitelist for testing
-            const filteredSensors = sensors || []; // (sensors || []).filter(sensor => deviceWhiteList.isSensorAllowed(sensor.id));
+            const derivedSensors = [
+                {
+                    id: `${sensor_id}-temp`,
+                    type: 'temperature',
+                    name: 'Temperature',
+                    value: temperature,
+                    unit: 'C',
+                },
+                {
+                    id: `${sensor_id}-humi`,
+                    type: 'humidity',
+                    name: 'Humidity',
+                    value: humidity,
+                    unit: '%',
+                },
+                {
+                    id: `${sensor_id}-light`,
+                    type: 'light',
+                    name: 'Light',
+                    value: light?.percent,
+                    unit: light?.unit,
+                    raw: light?.raw,
+                },
+                {
+                    id: `${sensor_id}-rain`,
+                    type: 'rain',
+                    name: 'Rain',
+                    value: rain?.percent,
+                    unit: rain?.unit,
+                    raw: rain?.raw,
+                },
+                {
+                    id: `${sensor_id}-soil`,
+                    type: 'soil',
+                    name: 'Soil',
+                    value: soil?.percent,
+                    unit: soil?.unit,
+                    raw: soil?.raw,
+                },
+            ].filter(sensor => sensor.value !== undefined && sensor.value !== null);
+
+            const filteredSensors = (sensors && sensors.length > 0)
+                ? sensors
+                : derivedSensors; // (sensors || []).filter(sensor => deviceWhiteList.isSensorAllowed(sensor.id));
 
             if (gateway_id) {
                 deviceWhiteList.setGatewayStatus(gateway_id, 'online');
@@ -99,20 +150,7 @@ class MQTTHandlers {
             // 2. Rate Limiting
             const limiter = this.getRateLimiter(gateway_id);
             if (!limiter.consume(1)) {
-                console.log(`Rate limit exceeded: ${gateway_id}`);
                 return;
-            }
-
-            // 3. Log received data
-            console.log(`\n✓ Data received from ${node_id}:`);
-            console.log(`  Gateway: ${gateway_id} (MAC: ${gateway_mac})`);
-            console.log(`  Node: ${node_id} (MAC: ${node_mac})`);
-            console.log(`  Sensors count: ${filteredSensors.length}`);
-            // Log từng sensor
-            if (filteredSensors && Array.isArray(filteredSensors)) {
-                filteredSensors.forEach(sensor => {
-                    console.log(`    - ${sensor.name} (${sensor.id}): ${sensor.value} ${sensor.unit}`);
-                });
             }
 
             // 4. XỬ LÝ 4 SENSORS - Convert sang devices array
@@ -182,8 +220,6 @@ class MQTTHandlers {
             buffer.gateway_info.status = deviceWhiteList.getGatewayStatus(gateway_id);
             buffer.gateway_info.registered = isRegistered;
 
-            console.log(`Buffered: ${Object.keys(buffer.nodes).length} node(s)`);
-
             if (this.sseService) {
                 const gatewayPayload = {
                     id: buffer.gateway_info.id,
@@ -206,8 +242,29 @@ class MQTTHandlers {
                 buffer.timer = null;
             }
 
-            console.log(`Saving ${node_id} immediately (no buffering)...`);
-            await this.saveBufferedData(gateway_id);
+            const receivedAt = new Date();
+            const documents = Object.values(buffer.nodes).flatMap((node) =>
+                (node.devices || []).map((device) => ({
+                    gateway_id: gateway_id,
+                    node_id: node.id,
+                    sensor_id: device.id,
+                    metric: device.type,
+                    value: device.value,
+                    unit: device.unit,
+                    timestamp: device.timestamp || receivedAt,
+                    ...(device.raw !== undefined ? { raw: device.raw } : {}),
+                    ...(device.status !== undefined ? { status: device.status } : {}),
+                }))
+            );
+
+
+            await saveSensorData({
+                gatewayId: gateway_id,
+                nodeBuffer: this.nodeBuffer,
+                db: this.db,
+                config: this.config,
+                documents,
+            });
 
         } catch (error) {
             console.error('Failed to handle sensor data:', error.message);
@@ -219,83 +276,7 @@ class MQTTHandlers {
     // LƯU BUFFER VÀO MONGODB
     // ═══════════════════════════════════════════════════════════════
 
-    async saveBufferedData(gateway_id) {
-        try {
-            if (!this.nodeBuffer.has(gateway_id)) {
-                return;
-            }
-
-            const buffer = this.nodeBuffer.get(gateway_id);
-
-            if (buffer.timer) {
-                clearTimeout(buffer.timer);
-                buffer.timer = null;
-            }
-
-            const receivedAt = new Date();
-            const nodes = Object.values(buffer.nodes);
-            const documents = nodes.map((node) => ({
-                gateway_id: buffer.gateway_info.id,
-                gateway_ip: buffer.gateway_info.ip || null,
-                gateway_mac: buffer.gateway_info.mac || null,
-                node_id: node.id,
-                node_mac: node.mac || null,
-                measurements: (node.devices || []).map((device) => ({
-                    sensor_id: device.id,
-                    metric: device.type,
-                    value: device.value,
-                    unit: device.unit,
-                })),
-                received_at: receivedAt,
-            }));
-
-            const gatewayStatus = deviceWhiteList.getGatewayStatus(gateway_id);
-            if (gatewayStatus !== 'online' || buffer.gateway_info.registered !== true) {
-                console.log(`Skipping MongoDB write for ${gateway_id} (status=${gatewayStatus}, registered=${buffer.gateway_info.registered})`);
-                this.nodeBuffer.delete(gateway_id);
-                return;
-            }
-
-            if (!documents.length) {
-                console.log(`No node data to persist for ${gateway_id}`);
-                this.nodeBuffer.delete(gateway_id);
-                return;
-            }
-
-            if (this.db) {
-                console.log(
-                    `    Gateway status=${buffer.gateway_info.status || 'unknown'} lastSeen=${buffer.gateway_info.lastSeen || 'n/a'}`
-                );
-                Object.values(buffer.nodes).forEach(node => {
-                    console.log(
-                        `    Node ${node.id} status=${node.status || 'unknown'} lastSeen=${node.last_seen || 'n/a'}`
-                    );
-                });
-
-                const sensorCollectionName = this.config?.SENSOR_COLLECTION_NAME || 'sensor_readings'
-                const result = await this.db.collection(sensorCollectionName).insertMany(documents);
-                console.log(`    New documents created in MongoDB`);
-                console.log(`    Document IDs: ${Object.values(result.insertedIds).join(', ')}`);
-                console.log(`    Nodes: ${Object.keys(buffer.nodes).join(', ')}`);
-
-                // Log sensors count
-                Object.values(buffer.nodes).forEach(node => {
-                    console.log(`      ${node.id}: ${node.devices.length} sensors`);
-                });
-            } else {
-                console.log(`MongoDB not connected`);
-            }
-
-            this.nodeBuffer.delete(gateway_id);
-            console.log(`Buffer cleared for ${gateway_id}\n`);
-
-        } catch (error) {
-            console.error('Failed to save buffered data:', error.message);
-        }
-    }
-
     async handleHeartbeat(payload, client) {
-        console.log("handleHeartbeat: " + payload);
         try {
             const data = JSON.parse(payload);
             const { gateway_id, status, uptime, timestamp } = data;
@@ -305,16 +286,14 @@ class MQTTHandlers {
                 status.trim().toLowerCase() === 'online'
                     ? 'online'
                     : 'inactive';
-
             const registered = deviceWhiteList.isGatewayAllowed(gateway_id);
             if (!registered) {
-                console.log(`Heartbeat from non-whitelisted gateway: ${gateway_id}`);
+                return;
             }
 
             deviceWhiteList.setGatewayStatus(gateway_id, normalizedStatus);
-            console.log(`Heartbeat: ${gateway_id} (${normalizedStatus}) registered=${registered}`);
+            console.log('[heartbeat] received');
 
-            // Heartbeat: log only (no MongoDB write, no SSE broadcast)
         } catch (error) {
             console.error("Heartbeat error:", error.message);
         }

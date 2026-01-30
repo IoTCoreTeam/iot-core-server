@@ -49,7 +49,7 @@ Small Node.js service that hosts:
   - `routeMetricData.js`: exposes `/v1/sensors` read endpoints.
   - `routeWhiteList.js`: GET/POST whitelist manipulation and snapshot.
 - `services/`
-  - `sensorService.js`: wraps MongoDB queries used by REST handlers.
+  - `sensorQuerry.js`: wraps MongoDB queries used by REST handlers.
   - `deviceWhiteList.js`: polls the control module for allowed gateways/nodes, tracks gateway online status, and exposes helper APIs.
   - `sseGatewayService.js`: manages Server-Sent Events clients that receive gateway updates.
 - `models/`: schema helpers used by controllers/services.
@@ -66,7 +66,7 @@ Small Node.js service that hosts:
 - **Whitelist-aware processing**: only registered gateways marked as `online` are persisted; whitelist snapshot endpoint includes current statuses.
 - **Server-Sent Events** on `/events/gateways` to stream gateway metadata (id, name, status, last seen) to clients.
 - **Heartbeat tracking** that normalizes statuses and writes heartbeat events into the shared `SENSOR_COLLECTION_NAME` collection using an `event_type: 'heartbeat'` marker, so sensor data and heartbeats live together.
-- **Sensor data API** (`/v1/sensors`) backed by `sensorService.js`, plus Socket.IO for real-time WebSocket clients.
+- **Sensor data API** (`/v1/sensors`) backed by `sensorQuerry.js`, plus Socket.IO for real-time WebSocket clients.
 - **Simulator** that emits sensor readings and heartbeats every 10 seconds and obeys configurable heartbeat intervals.
 
 ---

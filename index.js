@@ -12,7 +12,9 @@ const deviceWhiteList = require('./services/deviceWhiteList')
 const SSEGatewayService = require('./services/sseGatewayService')
 const MQTTHandlers = require('./mqtt/mqttHandle')
 
-// Rate limiter class
+/* =========================
+   Rate Limiter
+========================= */
 class RateLimiter {
   constructor(maxRequests = 10, windowMs = 1000) {
     this.maxRequests = maxRequests
@@ -22,21 +24,55 @@ class RateLimiter {
 
   consume(count = 1) {
     const now = Date.now()
-    this.requests = this.requests.filter((timestamp) => now - timestamp < this.windowMs)
+    this.requests = this.requests.filter(ts => now - ts < this.windowMs)
 
     if (this.requests.length + count <= this.maxRequests) {
-      for (let i = 0; i < count; i++) {
-        this.requests.push(now)
-      }
+      for (let i = 0; i < count; i++) this.requests.push(now)
       return true
     }
     return false
   }
 }
 
-// Express + Socket.IO setup
+/* =========================
+   Express + HTTP
+========================= */
 const app = express()
 const server = http.createServer(app)
+
+/* ---------- Body ---------- */
+app.use(express.json())
+
+/* ---------- CORS (SAFE WAY – Node 22 compatible) ---------- */
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+
+  // ⬅️ Handle OPTIONS globally (KHÔNG dùng app.options)
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204)
+  }
+  next()
+})
+
+/* ---------- Health ---------- */
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' })
+})
+
+/* ---------- API Routes ---------- */
+app.use('/v1/sensors', routeMetricData)
+app.use('/v1/whitelist', whiteListRouter)
+
+/* ---------- SSE ---------- */
+const sseGatewayService = new SSEGatewayService()
+sseGatewayService.registerRoute(app)
+
+
+/* =========================
+   Socket.IO
+========================= */
 const io = new Server(server, {
   cors: {
     origin: '*',
@@ -44,28 +80,11 @@ const io = new Server(server, {
   }
 })
 
-app.use(express.json())
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-  next()
-})
-
-app.get('/health', (_req, res) => { res.json({ status: 'ok' }) })
-
-app.use('/v1/sensors', routeMetricData)
-app.use('/v1/whitelist', whiteListRouter)
-
-const sseGatewayService = new SSEGatewayService()
-sseGatewayService.registerRoute(app)
-
-// Socket.IO Logic
 io.on('connection', (socket) => {
   console.log('WebSocket client connected:', socket.id)
 
   socket.on('REQUEST_DEVICE_STATUS', () => {
     try {
-      const snapshot = deviceWhiteList.getWhitelistSnapshot()
       socket.emit('DEVICE_STATUS_UPDATE', {
         gateways: [],
         nodes: [],
@@ -73,8 +92,8 @@ io.on('connection', (socket) => {
           activeRegistered: []
         }
       })
-    } catch (error) {
-      console.error('Error handling REQUEST_DEVICE_STATUS:', error)
+    } catch (err) {
+      console.error('REQUEST_DEVICE_STATUS error:', err)
     }
   })
 
@@ -83,11 +102,14 @@ io.on('connection', (socket) => {
   })
 })
 
-// MQTT Broker Setup
+/* =========================
+   MQTT Broker
+========================= */
 const rateLimiters = new Map()
+
 const getRateLimiter = (clientId) => {
   if (!rateLimiters.has(clientId)) {
-    rateLimiters.set(clientId, new RateLimiter(100, 60000)) // 100 requests per minute
+    rateLimiters.set(clientId, new RateLimiter(100, 60000))
   }
   return rateLimiters.get(clientId)
 }
@@ -104,15 +126,18 @@ const mqttHandlers = new MQTTHandlers({
 
 aedes.on('client', (client) => mqttHandlers.onClientConnected(client))
 aedes.on('clientDisconnect', (client) => mqttHandlers.onClientDisconnected(client))
-aedes.on('subscribe', (subscriptions, client) => mqttHandlers.onSubscribe(subscriptions, client))
-aedes.on('publish', async (packet, client) => await mqttHandlers.onPublish(packet, client))
-aedes.on('clientError', (client, error) => mqttHandlers.onClientError(client, error))
-aedes.on('connectionError', (client, error) => mqttHandlers.onConnectionError(client, error))
+aedes.on('subscribe', (subs, client) => mqttHandlers.onSubscribe(subs, client))
+aedes.on('publish', (packet, client) => mqttHandlers.onPublish(packet, client))
+aedes.on('clientError', (client, err) => mqttHandlers.onClientError(client, err))
+aedes.on('connectionError', (client, err) => mqttHandlers.onConnectionError(client, err))
 
-// MQTT TCP Server
+/* ---------- MQTT TCP ---------- */
 const mqttServer = net.createServer(aedes.handle)
 const MQTT_PORT = 1883
 
+/* =========================
+   Start Server
+========================= */
 const port = Number(env.APP_PORT || 8017)
 const host = env.APP_HOST || '0.0.0.0'
 
@@ -120,17 +145,15 @@ const startServer = async () => {
   try {
     await connect()
 
-    // Start HTTP server
     server.listen(port, host, () => {
       console.log(`✓ HTTP/WebSocket server listening on http://${host}:${port}`)
     })
 
-    // Start MQTT broker
     mqttServer.listen(MQTT_PORT, () => {
       console.log(`✓ MQTT broker listening on port ${MQTT_PORT}`)
     })
-  } catch (error) {
-    console.error('Failed to start server:', error.message)
+  } catch (err) {
+    console.error('Failed to start server:', err)
     await close()
     process.exit(1)
   }
