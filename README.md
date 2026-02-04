@@ -37,6 +37,25 @@ Small Node.js service that hosts:
 
 ---
 
+## Whitelist (PowerShell)
+
+If you are not running the control module (`/api/available-nodes`), you can manually whitelist devices:
+
+```powershell
+$body = @{
+  gateways = @("GW_001")
+  nodes = @("node-001","node-002")
+  gateway_nodes = @{ GW_001 = @("node-001","node-002") }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8017/v1/whitelist" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+---
+
 ## Directory structure
 
 - `config/`
