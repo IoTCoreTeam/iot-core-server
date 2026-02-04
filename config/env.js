@@ -11,7 +11,9 @@ const env = {
   MONGODB_URI: process.env.MONGODB_URI,
   DATABASE_NAME: process.env.DATABASE_NAME || 'sensor_readings',
   SENSOR_COLLECTION_NAME: process.env.SENSOR_COLLECTION_NAME || 'sensor_readings',
-  SERVO_ACK_COLLECTION_NAME: process.env.SERVO_ACK_COLLECTION_NAME || 'servo_acks'
+  SERVO_ACK_COLLECTION_NAME: process.env.SERVO_ACK_COLLECTION_NAME || 'servo_acks',
+  CONTROL_ACK_COLLECTION_NAME: process.env.CONTROL_ACK_COLLECTION_NAME || 'control_acks',
+  CONTROL_COMMAND_TOPIC_PREFIX: process.env.CONTROL_COMMAND_TOPIC_PREFIX || 'esp32/commands'
 }
 
 module.exports = env

@@ -18,6 +18,9 @@ class MQTTHandlers {
 
         this.nodeBuffer = new Map();
         this.BUFFER_TIMEOUT = 10000;
+        this.nodeHeartbeatStatus = new Map();
+        this.HEARTBEAT_SUMMARY_INTERVAL = 30000;
+        this.lastHeartbeatSummaryAt = 0;
     }
 
     get db() {
@@ -51,9 +54,33 @@ class MQTTHandlers {
             await this.handleSensorData(payload, client);
         } else if (topic === 'esp32/heartbeat') {
             await this.handleHeartbeat(payload, client);
+        } else if (topic === 'esp32/nodes/heartbeat' || topic === 'esp32/controllers/heartbeat') {
+            await this.handleNodeHeartbeat(payload, client);
         } else if (topic === 'esp32/servo/ack') {
             await this.handleServoAck(payload, client);
+        } else if (topic === 'esp32/control/ack' || topic === 'esp32/actuator/ack') {
+            await this.handleControlAck(payload, topic);
         }
+    }
+
+    normalizeTimestamp(value) {
+        if (!value) {
+            return null;
+        }
+        if (value instanceof Date) {
+            return value;
+        }
+        if (typeof value === 'string') {
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+        if (typeof value === 'number') {
+            if (value > 1e12) {
+                const parsed = new Date(value);
+                return Number.isNaN(parsed.getTime()) ? null : parsed;
+            }
+        }
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -277,6 +304,7 @@ class MQTTHandlers {
     // ═══════════════════════════════════════════════════════════════
 
     async handleHeartbeat(payload, client) {
+        console.log("handleHeartbeat: " + payload);
         try {
             const data = JSON.parse(payload);
             const { gateway_id, status, uptime, timestamp } = data;
@@ -288,14 +316,91 @@ class MQTTHandlers {
                     : 'inactive';
             const registered = deviceWhiteList.isGatewayAllowed(gateway_id);
             if (!registered) {
-                return;
+                console.log(`Heartbeat from non-whitelisted gateway: ${gateway_id}`);
             }
 
             deviceWhiteList.setGatewayStatus(gateway_id, normalizedStatus);
-            console.log('[heartbeat] received');
+            console.log(`Heartbeat: ${gateway_id} (${normalizedStatus}) registered=${registered}`);
 
         } catch (error) {
             console.error("Heartbeat error:", error.message);
+        }
+    }
+
+    logNodeHeartbeatSummary() {
+        const now = Date.now();
+        if (now - this.lastHeartbeatSummaryAt < this.HEARTBEAT_SUMMARY_INTERVAL) {
+            return;
+        }
+        this.lastHeartbeatSummaryAt = now;
+
+        console.log("\n[Node Heartbeat Summary]");
+        if (this.nodeHeartbeatStatus.size === 0) {
+            console.log("  No node heartbeats received yet");
+            return;
+        }
+
+        this.nodeHeartbeatStatus.forEach((nodesMap, gatewayId) => {
+            const entries = [];
+            nodesMap.forEach((info, nodeId) => {
+                const lastSeen = info.lastSeen instanceof Date
+                    ? info.lastSeen.toISOString()
+                    : "n/a";
+                const uptime = info.uptime !== null && info.uptime !== undefined
+                    ? `${info.uptime}s`
+                    : "n/a";
+                const seq = info.seq !== null && info.seq !== undefined
+                    ? info.seq
+                    : "n/a";
+                entries.push(`${nodeId} lastSeen=${lastSeen} uptime=${uptime} seq=${seq}`);
+            });
+            const summary = entries.length ? entries.join(" | ") : "no nodes";
+            console.log(`  ${gatewayId}: ${summary}`);
+        });
+    }
+
+    async handleNodeHeartbeat(payload, client) {
+        try {
+            const data = JSON.parse(payload);
+            const {
+                gateway_id,
+                node_id,
+                status,
+                uptime,
+                heartbeat_seq,
+                gateway_timestamp
+            } = data;
+
+            if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
+                console.log(`Node heartbeat from non-whitelisted gateway: ${gateway_id}`);
+                return;
+            }
+
+            const isNodeAllowed = typeof deviceWhiteList.isNodeAllowedForGateway === 'function'
+                ? deviceWhiteList.isNodeAllowedForGateway(gateway_id, node_id)
+                : deviceWhiteList.isNodeAllowed(node_id);
+
+            if (!isNodeAllowed) {
+                console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id}`);
+                return;
+            }
+
+            const lastSeen =
+                this.normalizeTimestamp(gateway_timestamp) || new Date();
+
+            if (!this.nodeHeartbeatStatus.has(gateway_id)) {
+                this.nodeHeartbeatStatus.set(gateway_id, new Map());
+            }
+            this.nodeHeartbeatStatus.get(gateway_id).set(node_id, {
+                lastSeen,
+                uptime: uptime ?? null,
+                seq: heartbeat_seq ?? null,
+                status: status || "unknown"
+            });
+
+            this.logNodeHeartbeatSummary();
+        } catch (error) {
+            console.error("Node heartbeat error:", error.message);
         }
     }
 
@@ -324,6 +429,44 @@ class MQTTHandlers {
             }
         } catch (error) {
             console.error('Servo ACK error:', error.message);
+        }
+    }
+
+    async handleControlAck(payload, topic) {
+        try {
+            const data = JSON.parse(payload);
+            const gatewayId = data.gateway_id;
+            const nodeId = data.node_id;
+
+            if (!deviceWhiteList.isGatewayAllowed(gatewayId)) {
+                console.log('Control ACK from non-whitelisted gateway: ', gatewayId);
+                return;
+            }
+
+            if (nodeId) {
+                const isNodeAllowed = typeof deviceWhiteList.isNodeAllowedForGateway === 'function'
+                    ? deviceWhiteList.isNodeAllowedForGateway(gatewayId, nodeId)
+                    : deviceWhiteList.isNodeAllowed(nodeId);
+                if (!isNodeAllowed) {
+                    console.log(`Control ACK from non-whitelisted node ${nodeId} on gateway ${gatewayId}`);
+                    return;
+                }
+            }
+
+            console.log(
+                `Control ACK: gateway=${gatewayId} node=${nodeId || 'n/a'} device=${data.device || 'n/a'} state=${data.state || 'n/a'} status=${data.status || 'n/a'}`
+            );
+
+            if (this.db) {
+                const controlAckCollectionName = this.config?.CONTROL_ACK_COLLECTION_NAME || 'control_acks';
+                await this.db.collection(controlAckCollectionName).insertOne({
+                    ...data,
+                    topic,
+                    received_at: new Date(),
+                });
+            }
+        } catch (error) {
+            console.error('Control ACK error:', error.message);
         }
     }
 

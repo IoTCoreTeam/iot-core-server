@@ -6,10 +6,13 @@ const aedes = require('aedes')()
 
 const { routeMetricData } = require('./routes/routeMetricData')
 const { router: whiteListRouter } = require('./routes/routeWhiteList')
+const { createControlRoute } = require('./routes/routeControl')
+const { createControlController } = require('./controllers/controlController')
 const { connect, close, getDb } = require('./config/db')
 const env = require('./config/env')
 const deviceWhiteList = require('./services/deviceWhiteList')
 const SSEGatewayService = require('./services/sseGatewayService')
+const ControlCommandService = require('./services/controlCommandService')
 const MQTTHandlers = require('./mqtt/mqttHandle')
 
 /* =========================
@@ -60,10 +63,6 @@ app.use((req, res, next) => {
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
-
-/* ---------- API Routes ---------- */
-app.use('/v1/sensors', routeMetricData)
-app.use('/v1/whitelist', whiteListRouter)
 
 /* ---------- SSE ---------- */
 const sseGatewayService = new SSEGatewayService()
@@ -123,6 +122,19 @@ const mqttHandlers = new MQTTHandlers({
   config: env,
   sseService: sseGatewayService
 })
+
+const controlCommandService = new ControlCommandService({
+  aedes,
+  deviceWhitelist: deviceWhiteList,
+  config: env,
+})
+const controlController = createControlController({ controlCommandService })
+const routeControl = createControlRoute(controlController)
+
+/* ---------- API Routes ---------- */
+app.use('/v1/sensors', routeMetricData)
+app.use('/v1/whitelist', whiteListRouter)
+app.use('/v1/control', routeControl)
 
 aedes.on('client', (client) => mqttHandlers.onClientConnected(client))
 aedes.on('clientDisconnect', (client) => mqttHandlers.onClientDisconnected(client))

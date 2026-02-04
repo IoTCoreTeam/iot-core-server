@@ -27,9 +27,119 @@ class DeviceActivityService {
     return {
       gateways: new Set(),
       nodes: new Set(),
+      gatewayNodes: new Map(),
       nodeControllers: new Set(),
       nodeSensors: new Set(),
     };
+  }
+
+  normalizeGatewayId(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value === 'object') {
+      const candidate = value.gateway_id ?? value.gatewayId ?? value.id ?? value.gateway;
+      if (candidate === null || candidate === undefined) {
+        return null;
+      }
+      return String(candidate);
+    }
+    return String(value);
+  }
+
+  normalizeNodeId(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value === 'object') {
+      const candidate = value.node_id ?? value.nodeId ?? value.id ?? value.node;
+      if (candidate === null || candidate === undefined) {
+        return null;
+      }
+      return String(candidate);
+    }
+    return String(value);
+  }
+
+  addGatewayNodes(map, gatewayId, nodes) {
+    const normalizedGatewayId = this.normalizeGatewayId(gatewayId);
+    if (!normalizedGatewayId) {
+      return;
+    }
+
+    if (!map.has(normalizedGatewayId)) {
+      map.set(normalizedGatewayId, new Set());
+    }
+
+    const target = map.get(normalizedGatewayId);
+    const nodeList = Array.isArray(nodes) ? nodes : [nodes];
+    nodeList.forEach((node) => {
+      const normalizedNodeId = this.normalizeNodeId(node);
+      if (normalizedNodeId) {
+        target.add(normalizedNodeId);
+      }
+    });
+  }
+
+  normalizeGatewayNodes(raw) {
+    const map = new Map();
+    if (!raw) {
+      return map;
+    }
+
+    if (Array.isArray(raw)) {
+      raw.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        const gatewayId =
+          entry.gateway_id ??
+          entry.gatewayId ??
+          entry.gateway ??
+          entry.id;
+        const singleNode =
+          entry.node_id ??
+          entry.nodeId ??
+          entry.node;
+        const nodes =
+          entry.nodes ??
+          entry.node_ids ??
+          entry.nodeIds ??
+          entry.node_list ??
+          entry.nodeList ??
+          entry.whitelist ??
+          (singleNode ? [singleNode] : undefined);
+        this.addGatewayNodes(map, gatewayId, nodes);
+      });
+      return map;
+    }
+
+    if (typeof raw === 'object') {
+      Object.entries(raw).forEach(([gatewayId, nodes]) => {
+        this.addGatewayNodes(map, gatewayId, nodes);
+      });
+    }
+
+    return map;
+  }
+
+  mergeGatewayNodeMaps(primary, secondary) {
+    const base = primary instanceof Map ? primary : new Map();
+    const extra = secondary instanceof Map ? secondary : new Map();
+    const merged = new Map();
+
+    const mergeInto = (gatewayId, nodes) => {
+      if (!merged.has(gatewayId)) {
+        merged.set(gatewayId, new Set());
+      }
+      const target = merged.get(gatewayId);
+      (nodes || new Set()).forEach((nodeId) => target.add(String(nodeId)));
+    };
+
+    base.forEach((nodes, gatewayId) => mergeInto(gatewayId, nodes));
+    extra.forEach((nodes, gatewayId) => mergeInto(gatewayId, nodes));
+
+    return merged;
   }
 
   mergeWhitelists(primary, secondary) {
@@ -38,6 +148,7 @@ class DeviceActivityService {
     return {
       gateways: new Set([...base.gateways, ...extra.gateways]),
       nodes: new Set([...base.nodes, ...extra.nodes]),
+      gatewayNodes: this.mergeGatewayNodeMaps(base.gatewayNodes, extra.gatewayNodes),
       nodeControllers: new Set([...base.nodeControllers, ...extra.nodeControllers]),
       nodeSensors: new Set([...base.nodeSensors, ...extra.nodeSensors]),
     };
@@ -59,11 +170,40 @@ class DeviceActivityService {
         throw new Error('Available nodes response invalid');
       }
 
-      const { gateways = [], nodes = [], node_controllers = [], node_sensors = [] } = payload.data;
+      const {
+        gateways = [],
+        nodes = [],
+        node_controllers = [],
+        node_sensors = [],
+        gateway_nodes,
+        gatewayNodes,
+        gateway_nodes_map,
+        gatewayNodesMap,
+        nodes_by_gateway,
+        nodesByGateway,
+        gateways_with_nodes,
+        gatewaysWithNodes,
+      } = payload.data;
 
+      const gatewayNodesFromPayload = this.normalizeGatewayNodes(
+        gateway_nodes ??
+          gatewayNodes ??
+          gateway_nodes_map ??
+          gatewayNodesMap ??
+          nodes_by_gateway ??
+          nodesByGateway ??
+          gateways_with_nodes ??
+          gatewaysWithNodes
+      );
+      const gatewayNodesFromNodes = this.normalizeGatewayNodes(nodes);
       const remoteWhitelist = {
         gateways: new Set(gateways.map((value) => String(value))),
-        nodes: new Set(nodes.map((value) => String(value))),
+        nodes: new Set(
+          nodes
+            .map((value) => this.normalizeNodeId(value))
+            .filter((value) => value)
+        ),
+        gatewayNodes: this.mergeGatewayNodeMaps(gatewayNodesFromPayload, gatewayNodesFromNodes),
         nodeControllers: new Set(node_controllers.map((value) => String(value))),
         nodeSensors: new Set(node_sensors.map((value) => String(value))),
       };
@@ -98,10 +238,21 @@ class DeviceActivityService {
     }, POLL_INTERVAL_MS);
   }
 
-  overrideWhitelist({ gateways = [], nodes = [], node_controllers = [], node_sensors = [] } = {}) {
+  overrideWhitelist({
+    gateways = [],
+    nodes = [],
+    gateway_nodes,
+    node_controllers = [],
+    node_sensors = [],
+  } = {}) {
     this.manualWhitelist = {
       gateways: new Set((gateways || []).map((value) => String(value))),
-      nodes: new Set((nodes || []).map((value) => String(value))),
+      nodes: new Set(
+        (nodes || [])
+          .map((value) => this.normalizeNodeId(value))
+          .filter((value) => value)
+      ),
+      gatewayNodes: this.normalizeGatewayNodes(gateway_nodes),
       nodeControllers: new Set((node_controllers || []).map((value) => String(value))),
       nodeSensors: new Set((node_sensors || []).map((value) => String(value))),
     };
@@ -113,12 +264,17 @@ class DeviceActivityService {
 
   getWhitelistSnapshot() {
     const current = this.whitelist || this.createEmptyWhitelist();
+    const gatewayNodes = {};
+    (current.gatewayNodes || new Map()).forEach((nodes, gatewayId) => {
+      gatewayNodes[gatewayId] = Array.from(nodes);
+    });
     return {
       gateways: Array.from(current.gateways).map((id) => ({
         id,
         status: this.getGatewayStatus(id),
       })),
       nodes: Array.from(current.nodes),
+      gateway_nodes: gatewayNodes,
       node_controllers: Array.from(current.nodeControllers),
       node_sensors: Array.from(current.nodeSensors),
     };
@@ -138,6 +294,22 @@ class DeviceActivityService {
     }
 
     return this.whitelist.nodes.has(String(nodeId));
+  }
+
+  isNodeAllowedForGateway(gatewayId, nodeId) {
+    if (!this.whitelist || !nodeId) {
+      return false;
+    }
+
+    const normalizedGatewayId = gatewayId ? String(gatewayId) : null;
+    const normalizedNodeId = String(nodeId);
+    const gatewayNodes = this.whitelist.gatewayNodes;
+
+    if (gatewayNodes && normalizedGatewayId && gatewayNodes.has(normalizedGatewayId)) {
+      return gatewayNodes.get(normalizedGatewayId).has(normalizedNodeId);
+    }
+
+    return this.isNodeAllowed(normalizedNodeId);
   }
 
   isSensorAllowed(sensorId) {

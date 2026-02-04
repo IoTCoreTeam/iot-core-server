@@ -37,6 +37,87 @@ Small Node.js service that hosts:
 
 ---
 
+## Whitelist (PowerShell)
+
+If you are not running the control module (`/api/available-nodes`), you can manually whitelist devices:
+
+```powershell
+$body = @{
+  gateways = @("GW_001","GW_002")
+  nodes = @("node-sensor-001","node-control-001","node-sensor-002")
+  gateway_nodes = @{
+    GW_001 = @("node-sensor-001","node-control-001")
+    GW_002 = @("node-sensor-002")
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8017/v1/whitelist" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+---
+
+## Control API (Pump/Light)
+
+The server now has dedicated routes for manual actuator control from Postman:
+
+- `POST /v1/control/pump`
+- `POST /v1/control/light`
+- `POST /v1/control/enqueue` (generic)
+- `GET /v1/control/health`
+
+### Postman examples
+
+Pump ON on gateway 1 / node control 1:
+
+```json
+POST http://127.0.0.1:8017/v1/control/pump
+{
+  "gateway_id": "GW_001",
+  "node_id": "node-control-001",
+  "state": "on"
+}
+```
+
+Light OFF (delayed 2 seconds):
+
+```json
+POST http://127.0.0.1:8017/v1/control/light
+{
+  "gateway_id": "GW_001",
+  "node_id": "node-control-001",
+  "state": "off",
+  "delayMs": 2000
+}
+```
+
+The command is published to MQTT topic:
+
+- `esp32/commands/{gateway_id}`
+
+Payload includes:
+
+- `gateway_id`
+- `node_id`
+- `action_type` (`relay_control`)
+- `device` (`pump` or `light`)
+- `state` (`on` or `off`)
+- `requested_at`
+
+Node control ACK topics supported by server:
+
+- `esp32/control/ack`
+- `esp32/actuator/ack`
+
+Node heartbeat topics supported by server:
+
+- `esp32/nodes/heartbeat`
+- `esp32/controllers/heartbeat`
+
+---
+
 ## Directory structure
 
 - `config/`
@@ -48,9 +129,11 @@ Small Node.js service that hosts:
 - `routes/`
   - `routeMetricData.js`: exposes `/v1/sensors` read endpoints.
   - `routeWhiteList.js`: GET/POST whitelist manipulation and snapshot.
+  - `routeControl.js`: control APIs for pump/light commands.
 - `services/`
   - `sensorQuerry.js`: wraps MongoDB queries used by REST handlers.
   - `deviceWhiteList.js`: polls the control module for allowed gateways/nodes, tracks gateway online status, and exposes helper APIs.
+  - `controlCommandService.js`: in-memory queue + MQTT publish for control commands.
   - `sseGatewayService.js`: manages Server-Sent Events clients that receive gateway updates.
 - `models/`: schema helpers used by controllers/services.
 - `controllers/`: request handlers for metric routes.
@@ -67,6 +150,7 @@ Small Node.js service that hosts:
 - **Server-Sent Events** on `/events/gateways` to stream gateway metadata (id, name, status, last seen) to clients.
 - **Heartbeat tracking** that normalizes statuses and writes heartbeat events into the shared `SENSOR_COLLECTION_NAME` collection using an `event_type: 'heartbeat'` marker, so sensor data and heartbeats live together.
 - **Sensor data API** (`/v1/sensors`) backed by `sensorQuerry.js`, plus Socket.IO for real-time WebSocket clients.
+- **Control API** (`/v1/control`) for manual pump/light commands from Postman, published to gateway MQTT command topics.
 - **Simulator** that emits sensor readings and heartbeats every 10 seconds and obeys configurable heartbeat intervals.
 
 ---

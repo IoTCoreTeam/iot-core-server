@@ -12,8 +12,8 @@ router.get('/', (_req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { gateways, nodes, node_controllers, node_sensors } = req.body || {};
-  deviceWhiteList.overrideWhitelist({ gateways, nodes, node_controllers, node_sensors });
+  const { gateways, nodes, gateway_nodes, node_controllers, node_sensors } = req.body || {};
+  deviceWhiteList.overrideWhitelist({ gateways, nodes, gateway_nodes, node_controllers, node_sensors });
   return res.json({
     success: true,
     message: 'Whitelist overridden',
