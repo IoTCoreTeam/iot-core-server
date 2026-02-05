@@ -373,7 +373,6 @@ class MQTTHandlers {
 
             if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
                 console.log(`Node heartbeat from non-whitelisted gateway: ${gateway_id}`);
-                return;
             }
 
             const isNodeAllowed = typeof deviceWhiteList.isNodeAllowedForGateway === 'function'
@@ -382,7 +381,6 @@ class MQTTHandlers {
 
             if (!isNodeAllowed) {
                 console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id}`);
-                return;
             }
 
             const lastSeen =

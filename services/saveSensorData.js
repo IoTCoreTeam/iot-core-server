@@ -24,9 +24,25 @@ async function saveSensorData({ gatewayId, nodeBuffer, db, config, documents }) 
             return;
         }
 
+        const whitelistedDocs = documents.filter((doc) => {
+            const nodeId = doc?.node_id ?? doc?.nodeId ?? null;
+            if (!nodeId) {
+                return false;
+            }
+            if (typeof deviceWhiteList.isNodeAllowedForGateway === 'function') {
+                return deviceWhiteList.isNodeAllowedForGateway(gatewayId, nodeId);
+            }
+            return deviceWhiteList.isNodeAllowed(nodeId);
+        });
+
+        if (!whitelistedDocs.length) {
+            nodeBuffer.delete(gatewayId);
+            return;
+        }
+
         if (db) {
             const sensorCollectionName = config?.SENSOR_COLLECTION_NAME || 'sensor_readings';
-            await db.collection(sensorCollectionName).insertMany(documents);
+            await db.collection(sensorCollectionName).insertMany(whitelistedDocs);
         }
 
         nodeBuffer.delete(gatewayId);
