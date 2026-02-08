@@ -1,53 +1,123 @@
-# IoT Core Server
+# IoT Core Server (kh-version)
 
-Small Node.js service that hosts:
-- an embedded MQTT broker (`aedes`, port 1883) for gateways to publish sensor data.
-- an HTTP + WebSocket API (port 8017) that fronts MongoDB data and streams real-time gateway events.
-- a MongoDB backend that persistently stores gateway payloads (sensor readings + heartbeats) inside the shared collection defined by `SENSOR_COLLECTION_NAME`.
+Node.js service running:
+- HTTP API (`APP_HOST`/`APP_PORT`, default `0.0.0.0:8017`)
+- MQTT broker (`1883`)
+- MongoDB write path for sensor metrics
 
----
+## Current Data Flow
+
+1. Gateway heartbeat (`esp32/heartbeat`)
+- fields: `gateway_id`, `status`, `uptime`, `timestamp`
+
+2. Node heartbeat (`esp32/nodes/heartbeat`, `esp32/controllers/heartbeat`)
+- fields: `type`, `gateway_id`, `gateway_ip`, `gateway_mac`, `node_id`, `node_name`, `node_mac`, `sensor_id`, `status`, `uptime`, `heartbeat_seq`, `sensor_rssi`, `gateway_timestamp`, `sensor_timestamp`
+- server uses this flow to keep `ip/mac` in memory (`nodeBuffer`) and publish SSE updates
+
+3. Sensor data (`esp32/sensors/data`)
+- gateway firmware drops sensor data if node is not in gateway whitelist
+- payload stays metric-focused (no `gateway_ip/gateway_mac/node_mac`)
+- server stores per-metric docs in MongoDB
+
+## Whitelist Rules (Current)
+
+- Gateway whitelist is checked in server before sensor DB write.
+- Node whitelist is enforced at gateway layer.
+- Server does not re-check node whitelist before sensor DB write.
+- Node heartbeat can still be received/logged even when node is not whitelisted.
+- `POST /v1/whitelist` triggers gateway whitelist sync over MQTT (retained):
+  - topic: `esp32/whitelist/{gateway_id}`
+  - payload: `type`, `gateway_id`, `nodes[]`, `updated_at`
+  - each gateway only receives and applies node list mapped to itself (`gateway_nodes[gateway_id]`).
+
+## Auto Whitelist Source
+
+- Server polls: `http://127.0.0.1:8000/api/available-nodes`
+- Expected JSON:
+  - `success: true`
+  - `data.gateways: string[]`
+  - `data.nodes: string[]`
+  - optional: `data.gateway_nodes: { [gatewayId]: string[] }`
+- Mapping rule when `gateway_nodes` is missing:
+  - if only one gateway exists, all `nodes` are assigned to that gateway
+  - if multiple gateways exist, node mapping stays empty per gateway until `gateway_nodes` is provided
+- Snapshot is pushed to gateways through retained MQTT whitelist messages.
+
+## MongoDB Write Model
+
+Collection: `SENSOR_COLLECTION_NAME` (default `sensor_readings`)
+
+Each inserted sensor document contains:
+- `gateway_id`
+- `node_id`
+- `sensor_id`
+- `metric`
+- `value`
+- `unit`
+- `timestamp`
+- optional: `raw`, `status`
+
+`ip/mac` are not written to MongoDB.
+
+## SSE for App
+
+Endpoint:
+- `GET /events/gateways`
+
+Event:
+- `gateway-update`
+
+Payload:
+- `id`, `name`, `ip`, `mac`, `status`, `registered`, `lastSeen`
+- `nodes[]` (if available in gateway buffer)
+- each node: `id`, `node_id`, `gateway_id`, `name`, `ip`, `mac`, `status`, `registered`, `last_seen`, `node_type`
+
+## Control API (Pump/Light)
+
+- `POST /v1/control/pump`
+- `POST /v1/control/light`
+- `POST /v1/control/enqueue`
+- `GET /v1/control/health`
+
+MQTT publish topic:
+- `esp32/commands/{gateway_id}`
 
 ## Setup
 
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-2. **Copy `.env.example` → `.env` and adjust**  
-   Required values:
-   - `MONGODB_URI`: connection string for MongoDB.
-   - `DATABASE_NAME`: database name (default `sensor_readings`).
--   - `SENSOR_COLLECTION_NAME`: collection for gateway data (sensor readings + heartbeats, default `sensor_readings`).
-   - `APP_HOST` / `APP_PORT`: HTTP server binding.
-   - `MQTT_PORT`: broker port (1883 default).
-   - Token and integration overrides as needed.
-3. **Start the server**
-   ```bash
-   npm run dev
-   ```
-4. **Optional: run the simulator**
-   ```bash
-   node mqtt/gateway-simulator.js
-   ```
-5. **Verify data**
-   ```bash
-   node test/checkSensorData.js
-   node test/testAPI.js
-   ```
+1. Install
+```bash
+npm install
+```
 
----
+2. Create `.env`
+```env
+APP_HOST=0.0.0.0
+APP_PORT=8017
+MONGODB_URI=mongodb://127.0.0.1:27017
+DATABASE_NAME=iot_core_system
+SENSOR_COLLECTION_NAME=sensor_readings
+SERVO_ACK_COLLECTION_NAME=servo_acks
+CONTROL_ACK_COLLECTION_NAME=control_acks
+CONTROL_COMMAND_TOPIC_PREFIX=esp32/commands
+CONTROL_MODULE_AVAILABLE_NODES_URL=http://127.0.0.1:8000/api/available-nodes
+WHITELIST_SYNC_INTERVAL_MS=30000
+```
 
-## Whitelist (PowerShell)
+3. Run
+```bash
+npm run dev
+```
 
-If you are not running the control module (`/api/available-nodes`), you can manually whitelist devices:
+## Manual Whitelist (PowerShell)
 
 ```powershell
 $body = @{
-  gateways = @("GW_001","GW_002")
-  nodes = @("node-sensor-001","node-control-001","node-sensor-002")
+  gateways = @("GW_001","GW_002","GW_003")
+  nodes = @("node-sensor-001","node-control-001","node-sensor-002","node-sensor-003")
   gateway_nodes = @{
     GW_001 = @("node-sensor-001","node-control-001")
     GW_002 = @("node-sensor-002")
+    GW_003 = @("node-sensor-003")
   }
 } | ConvertTo-Json -Depth 5
 
@@ -57,127 +127,9 @@ Invoke-RestMethod -Method Post `
   -Body $body
 ```
 
----
+## MAC Notes
 
-## Control API (Pump/Light)
-
-The server now has dedicated routes for manual actuator control from Postman:
-
-- `POST /v1/control/pump`
-- `POST /v1/control/light`
-- `POST /v1/control/enqueue` (generic)
-- `GET /v1/control/health`
-
-### Postman examples
-
-Pump ON on gateway 1 / node control 1:
-
-```json
-POST http://127.0.0.1:8017/v1/control/pump
-{
-  "gateway_id": "GW_001",
-  "node_id": "node-control-001",
-  "state": "on"
-}
-```
-
-Light OFF (delayed 2 seconds):
-
-```json
-POST http://127.0.0.1:8017/v1/control/light
-{
-  "gateway_id": "GW_001",
-  "node_id": "node-control-001",
-  "state": "off",
-  "delayMs": 2000
-}
-```
-
-The command is published to MQTT topic:
-
-- `esp32/commands/{gateway_id}`
-
-Payload includes:
-
-- `gateway_id`
-- `node_id`
-- `action_type` (`relay_control`)
-- `device` (`pump` or `light`)
-- `state` (`on` or `off`)
-- `requested_at`
-
-Node control ACK topics supported by server:
-
-- `esp32/control/ack`
-- `esp32/actuator/ack`
-
-Node heartbeat topics supported by server:
-
-- `esp32/nodes/heartbeat`
-- `esp32/controllers/heartbeat`
-
----
-
-## Directory structure
-
-- `config/`
-  - `env.js`: loads defaults for MongoDB, MQTT, HTTP and collection names.
-  - `db.js`: shared MongoDB client helpers.
-- `mqtt/`
-  - `mqttHandle.js`: core MQTT message handling (see flow below).
-  - `gateway-simulator.js`: publishes sample sensor/heartbeat payloads for local testing.
-- `routes/`
-  - `routeMetricData.js`: exposes `/v1/sensors` read endpoints.
-  - `routeWhiteList.js`: GET/POST whitelist manipulation and snapshot.
-  - `routeControl.js`: control APIs for pump/light commands.
-- `services/`
-  - `sensorQuerry.js`: wraps MongoDB queries used by REST handlers.
-  - `deviceWhiteList.js`: polls the control module for allowed gateways/nodes, tracks gateway online status, and exposes helper APIs.
-  - `controlCommandService.js`: in-memory queue + MQTT publish for control commands.
-  - `sseGatewayService.js`: manages Server-Sent Events clients that receive gateway updates.
-- `models/`: schema helpers used by controllers/services.
-- `controllers/`: request handlers for metric routes.
-- `scripts/` & `test/`: utilities and smoke tests for MQTT and HTTP flows.
-- `index.js`: boots Express + Socket.IO, registers MQTT handlers, SSE route, and rate limiting logic.
-- `package.json` / `package-lock.json`: dependency metadata.
-
----
-
-## Key features
-
-- **MQTT ingestion** with buffering + per-gateway rate limiting before persisting to MongoDB.
-- **Whitelist-aware processing**: only registered gateways marked as `online` are persisted; whitelist snapshot endpoint includes current statuses.
-- **Server-Sent Events** on `/events/gateways` to stream gateway metadata (id, name, status, last seen) to clients.
-- **Heartbeat tracking** that normalizes statuses and writes heartbeat events into the shared `SENSOR_COLLECTION_NAME` collection using an `event_type: 'heartbeat'` marker, so sensor data and heartbeats live together.
-- **Sensor data API** (`/v1/sensors`) backed by `sensorQuerry.js`, plus Socket.IO for real-time WebSocket clients.
-- **Control API** (`/v1/control`) for manual pump/light commands from Postman, published to gateway MQTT command topics.
-- **Simulator** that emits sensor readings and heartbeats every 10 seconds and obeys configurable heartbeat intervals.
-
----
-
-## `mqtt/mqttHandle.js` flow 
-
-1. **Initialization**
-   - Dependency-injected services include MongoDB access, whitelist service, SSE gateway service, and configuration defaults.
-   - A per-gateway buffer holds nodes while the handler waits for multiple node messages (timeout 10s).
-
-2. **Sensor data handling**
-   - Incoming payloads are parsed and gateway metadata extracted (ID, MAC, IP, timestamp, nodes, sensors).
-   - The handler checks the whitelist: gateway registration status is looked up, and sensors may be filtered if needed.
-   - Gateway status is updated (`deviceWhiteList.setGatewayStatus`), and buffered data tracks node counts plus latest gateway info.
-   - If SSE clients exist, a `gateway-update` event is emitted with id/name/ip/mac/status/registered/lastSeen.
-   - When the buffer flushes, the handler skips MongoDB writes unless the gateway is online and registered; otherwise the buffer is cleared.
-   - MongoDB writes use the collection defined by `SENSOR_COLLECTION_NAME` and log inserted document IDs plus node summaries.
-
-3. **Heartbeat handling**
-   - Payloads are normalized (`status` coerced to `online`/`inactive`) and the whitelist status map is updated.
-   - Heartbeats from non-whitelisted gateways are logged and ignored.
-- Only `online` and registered gateways insert documents into `SENSOR_COLLECTION_NAME` with an `event_type` marker (heartbeat), storing timestamps and uptime.
-   - The SSE service receives a gateway update for every heartbeat to keep clients in sync.
-
-4. **Buffer & cleanup**
-   - Each gateway buffer uses a timer to batch sensor readings (two nodes expected before writing).
-   - If MongoDB isn’t ready when the timer fires, the handler logs and keeps trying until the buffer is processed.
-   - Errors during parsing/logging are caught and reported without crashing the broker.
-
-This flow keeps data consistent: only approved gateways contribute to MongoDB, status changes propagate to SSE consumers, heartbeats reinforce whether a gateway can write, and all gateway payloads are unified inside the collection defined by `SENSOR_COLLECTION_NAME` (differentiated by `event_type`).
+- `GW_001`: `00:70:07:7E:7D:3C`
+- `GW_002`: `00:70:07:E5:F2:58`
+- `node-control-001`: `00:70:07:E6:B6:7C`
+- `GW_003`: `TBD`

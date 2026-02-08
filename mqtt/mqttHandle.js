@@ -84,22 +84,127 @@ class MQTTHandlers {
         return null;
     }
 
-    emitGatewayUpdate(gatewayInfo) {
+    getWhitelistService() {
+        return this.deviceWhitelist || deviceWhiteList;
+    }
+
+    isGatewayRegistered(gatewayId) {
+        if (!gatewayId) {
+            return false;
+        }
+        return this.getWhitelistService().isGatewayAllowed(String(gatewayId));
+    }
+
+    isNodeRegisteredForGateway(gatewayId, nodeId) {
+        if (!nodeId) {
+            return false;
+        }
+        const whitelistService = this.getWhitelistService();
+        if (typeof whitelistService.isNodeAllowedForGateway === 'function') {
+            return whitelistService.isNodeAllowedForGateway(gatewayId, nodeId);
+        }
+        return whitelistService.isNodeAllowed(nodeId);
+    }
+
+    normalizeOnlineStatus(value) {
+        return typeof value === 'string' && value.trim().toLowerCase() === 'online'
+            ? 'online'
+            : 'offline';
+    }
+
+    formatTimestampForSse(value) {
+        const parsed = this.normalizeTimestamp(value);
+        return parsed ? parsed.toISOString().replace(/Z$/, '+00:00') : null;
+    }
+
+    buildNodeSsePayload(gatewayId, nodeData) {
+        if (!nodeData || !nodeData.id) {
+            return null;
+        }
+        const nodeId = String(nodeData.id);
+        const lowerNodeId = nodeId.toLowerCase();
+        const nodeType = lowerNodeId.includes('control')
+            ? 'node-control'
+            : lowerNodeId.includes('sensor')
+                ? 'node-sensor'
+                : 'node';
+
+        return {
+            id: nodeId,
+            node_id: nodeId,
+            gateway_id: gatewayId || null,
+            name: (typeof nodeData.name === 'string' && nodeData.name.trim().length > 0)
+                ? nodeData.name
+                : nodeId,
+            ip: nodeData.ip || null,
+            mac: nodeData.mac || null,
+            status: this.normalizeOnlineStatus(nodeData.status),
+            registered: this.isNodeRegisteredForGateway(gatewayId, nodeId),
+            last_seen: this.formatTimestampForSse(nodeData.last_seen),
+            node_type: nodeType,
+        };
+    }
+
+    emitGatewayUpdate(gatewayInfo, nodes = null) {
         if (!this.sseService || !gatewayInfo) {
             return;
         }
 
-        this.sseService.sendGatewayUpdate({
-            id: gatewayInfo.id,
+        const gatewayId = gatewayInfo.id ? String(gatewayInfo.id) : null;
+        if (!gatewayId) {
+            return;
+        }
+
+        const payload = {
+            id: gatewayId,
             name: gatewayInfo.name,
             ip: gatewayInfo.ip || null,
             mac: gatewayInfo.mac || null,
-            status: gatewayInfo.status,
-            registered: gatewayInfo.registered,
-            lastSeen: gatewayInfo.lastSeen
-                ? gatewayInfo.lastSeen.toISOString().replace(/Z$/, '+00:00')
-                : null,
-        });
+            status: this.normalizeOnlineStatus(gatewayInfo.status),
+            registered: this.isGatewayRegistered(gatewayId),
+            lastSeen: this.formatTimestampForSse(gatewayInfo.lastSeen),
+        };
+
+        const nodeList = nodes && typeof nodes === 'object'
+            ? Object.values(nodes)
+                  .map((node) => this.buildNodeSsePayload(gatewayId, node))
+                  .filter(Boolean)
+            : [];
+        if (nodeList.length > 0) {
+            payload.nodes = nodeList;
+        }
+
+        this.sseService.sendGatewayUpdate(payload);
+    }
+
+    emitBufferedGatewayUpdates() {
+        if (!this.nodeBuffer || this.nodeBuffer.size === 0) {
+            return;
+        }
+
+        const whitelistService = this.getWhitelistService();
+        for (const [gatewayId, buffer] of this.nodeBuffer.entries()) {
+            if (!buffer || !buffer.gateway_info) {
+                continue;
+            }
+
+            buffer.gateway_info.id = buffer.gateway_info.id || gatewayId;
+            buffer.gateway_info.status = whitelistService.getGatewayStatus(gatewayId);
+            buffer.gateway_info.registered = this.isGatewayRegistered(gatewayId);
+
+            if (buffer.nodes && typeof buffer.nodes === 'object') {
+                for (const [nodeId, nodeData] of Object.entries(buffer.nodes)) {
+                    if (!nodeData || typeof nodeData !== 'object') {
+                        continue;
+                    }
+                    nodeData.id = nodeData.id || nodeId;
+                    nodeData.status = this.normalizeOnlineStatus(nodeData.status);
+                    nodeData.registered = this.isNodeRegisteredForGateway(gatewayId, nodeData.id);
+                }
+            }
+
+            this.emitGatewayUpdate(buffer.gateway_info, buffer.nodes);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -125,7 +230,8 @@ class MQTTHandlers {
                 soil,
             } = espData;
 
-            const isRegistered = deviceWhiteList.isGatewayAllowed(gateway_id);
+            const whitelistService = this.getWhitelistService();
+            const isRegistered = this.isGatewayRegistered(gateway_id);
             const readingTime = this.normalizeTimestamp(gateway_timestamp) || new Date();
             const derivedSensors = [
                 {
@@ -173,7 +279,7 @@ class MQTTHandlers {
                 : derivedSensors;
 
             if (gateway_id) {
-                deviceWhiteList.setGatewayStatus(gateway_id, 'online');
+                whitelistService.setGatewayStatus(gateway_id, 'online');
             }
 
             const limiter = this.getRateLimiter(gateway_id);
@@ -212,7 +318,7 @@ class MQTTHandlers {
                         name: 'Main Gateway',
                         ip: gateway_ip || gatewayNetworkInfo.ip || null,
                         mac: gateway_mac || gatewayNetworkInfo.mac || null,
-                        status: deviceWhiteList.getGatewayStatus(gateway_id),
+                        status: whitelistService.getGatewayStatus(gateway_id),
                         registered: isRegistered,
                         lastSeen: readingTime,
                     },
@@ -229,7 +335,8 @@ class MQTTHandlers {
                 name: existingNode.name || `Environmental Node ${node_id === 'node-001' ? '#1' : '#2'}`,
                 ip: node_ip || existingNode.ip || heartbeatNodeInfo.ip || null,
                 mac: node_mac || existingNode.mac || heartbeatNodeInfo.mac || null,
-                status: 'active',
+                status: 'online',
+                registered: this.isNodeRegisteredForGateway(gateway_id, node_id),
                 last_seen: readingTime,
                 rssi: sensor_rssi,
                 devices,
@@ -249,7 +356,7 @@ class MQTTHandlers {
             if (!buffer.gateway_info.mac && gatewayNetworkInfo.mac) {
                 buffer.gateway_info.mac = gatewayNetworkInfo.mac;
             }
-            buffer.gateway_info.status = deviceWhiteList.getGatewayStatus(gateway_id);
+            buffer.gateway_info.status = whitelistService.getGatewayStatus(gateway_id);
             buffer.gateway_info.registered = isRegistered;
 
             if (gateway_ip || gateway_mac) {
@@ -259,7 +366,7 @@ class MQTTHandlers {
                 });
             }
 
-            this.emitGatewayUpdate(buffer.gateway_info);
+            this.emitGatewayUpdate(buffer.gateway_info, buffer.nodes);
 
             if (buffer.timer) {
                 clearTimeout(buffer.timer);
@@ -365,19 +472,20 @@ class MQTTHandlers {
                 sensor_rssi,
             } = data;
 
-            if (!deviceWhiteList.isGatewayAllowed(gateway_id)) {
+            const whitelistService = this.getWhitelistService();
+            const gatewayRegistered = this.isGatewayRegistered(gateway_id);
+            if (!gatewayRegistered) {
                 console.log(`Node heartbeat from non-whitelisted gateway: ${gateway_id}`);
             }
 
-            const isNodeAllowed = typeof deviceWhiteList.isNodeAllowedForGateway === 'function'
-                ? deviceWhiteList.isNodeAllowedForGateway(gateway_id, node_id)
-                : deviceWhiteList.isNodeAllowed(node_id);
+            const isNodeAllowed = this.isNodeRegisteredForGateway(gateway_id, node_id);
 
             if (!isNodeAllowed) {
                 console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id}`);
             }
 
             const lastSeen = this.normalizeTimestamp(gateway_timestamp) || new Date();
+            const normalizedNodeStatus = this.normalizeOnlineStatus(status);
 
             if (!this.nodeHeartbeatStatus.has(gateway_id)) {
                 this.nodeHeartbeatStatus.set(gateway_id, new Map());
@@ -386,7 +494,7 @@ class MQTTHandlers {
                 lastSeen,
                 uptime: uptime ?? null,
                 seq: heartbeat_seq ?? null,
-                status: status || 'unknown',
+                status: normalizedNodeStatus,
                 ip: node_ip || null,
                 mac: node_mac || null,
             });
@@ -405,8 +513,8 @@ class MQTTHandlers {
                         name: 'Main Gateway',
                         ip: currentGatewayNetworkInfo.ip,
                         mac: currentGatewayNetworkInfo.mac,
-                        status: deviceWhiteList.getGatewayStatus(gateway_id),
-                        registered: deviceWhiteList.isGatewayAllowed(gateway_id),
+                        status: whitelistService.getGatewayStatus(gateway_id),
+                        registered: gatewayRegistered,
                         lastSeen,
                     },
                     nodes: {},
@@ -428,8 +536,8 @@ class MQTTHandlers {
             if (!buffer.gateway_info.mac && currentGatewayNetworkInfo.mac) {
                 buffer.gateway_info.mac = currentGatewayNetworkInfo.mac;
             }
-            buffer.gateway_info.status = deviceWhiteList.getGatewayStatus(gateway_id);
-            buffer.gateway_info.registered = deviceWhiteList.isGatewayAllowed(gateway_id);
+            buffer.gateway_info.status = whitelistService.getGatewayStatus(gateway_id);
+            buffer.gateway_info.registered = gatewayRegistered;
 
             if (node_id) {
                 const existingNode = buffer.nodes[node_id] || {};
@@ -439,14 +547,15 @@ class MQTTHandlers {
                     name: existingNode.name || node_id,
                     ip: node_ip || existingNode.ip || null,
                     mac: node_mac || existingNode.mac || null,
-                    status: status || existingNode.status || 'unknown',
+                    status: normalizedNodeStatus,
+                    registered: isNodeAllowed,
                     last_seen: lastSeen,
                     rssi: sensor_rssi ?? existingNode.rssi ?? null,
                     devices: Array.isArray(existingNode.devices) ? existingNode.devices : [],
                 };
             }
 
-            this.emitGatewayUpdate(buffer.gateway_info);
+            this.emitGatewayUpdate(buffer.gateway_info, buffer.nodes);
             this.logNodeHeartbeatSummary();
         } catch (error) {
             console.error('Node heartbeat error:', error.message);
