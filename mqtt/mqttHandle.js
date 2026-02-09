@@ -117,17 +117,26 @@ class MQTTHandlers {
         return parsed ? parsed.toISOString().replace(/Z$/, '+00:00') : null;
     }
 
+    resolveNodeType(nodeId) {
+        const nodeKey = typeof nodeId === 'string'
+            ? nodeId
+            : String(nodeId || '');
+        const lowerNodeId = nodeKey.toLowerCase();
+        if (lowerNodeId.includes('control')) {
+            return 'node-control';
+        }
+        if (lowerNodeId.includes('sensor')) {
+            return 'node-sensor';
+        }
+        return 'node';
+    }
+
     buildNodeSsePayload(gatewayId, nodeData) {
         if (!nodeData || !nodeData.id) {
             return null;
         }
         const nodeId = String(nodeData.id);
-        const lowerNodeId = nodeId.toLowerCase();
-        const nodeType = lowerNodeId.includes('control')
-            ? 'node-control'
-            : lowerNodeId.includes('sensor')
-                ? 'node-sensor'
-                : 'node';
+        const nodeType = this.resolveNodeType(nodeId);
 
         return {
             id: nodeId,
@@ -439,6 +448,7 @@ class MQTTHandlers {
         this.nodeHeartbeatStatus.forEach((nodesMap, gatewayId) => {
             const entries = [];
             nodesMap.forEach((info, nodeId) => {
+                const nodeType = info.type || this.resolveNodeType(nodeId);
                 const lastSeen = info.lastSeen instanceof Date
                     ? info.lastSeen.toISOString()
                     : "n/a";
@@ -448,7 +458,7 @@ class MQTTHandlers {
                 const seq = info.seq !== null && info.seq !== undefined
                     ? info.seq
                     : "n/a";
-                entries.push(`${nodeId} lastSeen=${lastSeen} uptime=${uptime} seq=${seq}`);
+                entries.push(`${nodeId} type=${nodeType} lastSeen=${lastSeen} uptime=${uptime} seq=${seq}`);
             });
             const summary = entries.length ? entries.join(" | ") : "no nodes";
             console.log(`  ${gatewayId}: ${summary}`);
@@ -471,6 +481,7 @@ class MQTTHandlers {
                 gateway_timestamp,
                 sensor_rssi,
             } = data;
+            const nodeType = this.resolveNodeType(node_id);
 
             const whitelistService = this.getWhitelistService();
             const gatewayRegistered = this.isGatewayRegistered(gateway_id);
@@ -481,7 +492,7 @@ class MQTTHandlers {
             const isNodeAllowed = this.isNodeRegisteredForGateway(gateway_id, node_id);
 
             if (!isNodeAllowed) {
-                console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id}`);
+                console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id} type=${nodeType}`);
             }
 
             const lastSeen = this.normalizeTimestamp(gateway_timestamp) || new Date();
@@ -490,14 +501,15 @@ class MQTTHandlers {
             if (!this.nodeHeartbeatStatus.has(gateway_id)) {
                 this.nodeHeartbeatStatus.set(gateway_id, new Map());
             }
-            this.nodeHeartbeatStatus.get(gateway_id).set(node_id, {
-                lastSeen,
-                uptime: uptime ?? null,
-                seq: heartbeat_seq ?? null,
-                status: normalizedNodeStatus,
-                ip: node_ip || null,
-                mac: node_mac || null,
-            });
+                this.nodeHeartbeatStatus.get(gateway_id).set(node_id, {
+                    lastSeen,
+                    uptime: uptime ?? null,
+                    seq: heartbeat_seq ?? null,
+                    type: nodeType,
+                    status: normalizedNodeStatus,
+                    ip: node_ip || null,
+                    mac: node_mac || null,
+                });
 
             const previousGatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
             const currentGatewayNetworkInfo = {
@@ -549,6 +561,7 @@ class MQTTHandlers {
                     mac: node_mac || existingNode.mac || null,
                     status: normalizedNodeStatus,
                     registered: isNodeAllowed,
+                    node_type: nodeType,
                     last_seen: lastSeen,
                     rssi: sensor_rssi ?? existingNode.rssi ?? null,
                     devices: Array.isArray(existingNode.devices) ? existingNode.devices : [],
