@@ -5,7 +5,7 @@ const { Server } = require('socket.io')
 const aedes = require('aedes')()
 
 const { routeMetricData } = require('./routes/routeMetricData')
-const { router: whiteListRouter } = require('./routes/routeWhiteList')
+const { createWhitelistRouter } = require('./routes/routeWhiteList')
 const { createControlRoute } = require('./routes/routeControl')
 const { createControlController } = require('./controllers/controlController')
 const { connect, close, getDb } = require('./config/db')
@@ -131,6 +131,70 @@ const controlCommandService = new ControlCommandService({
 const controlController = createControlController({ controlCommandService })
 const routeControl = createControlRoute(controlController)
 
+const publishAedesPacket = (packet) =>
+  new Promise((resolve, reject) => {
+    aedes.publish(packet, (error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
+    })
+  })
+
+const publishGatewayWhitelists = async (snapshot) => {
+  const gatewayNodes =
+    snapshot && snapshot.gateway_nodes && typeof snapshot.gateway_nodes === 'object'
+      ? snapshot.gateway_nodes
+      : {}
+  const gatewayIds = new Set()
+
+  const gateways = Array.isArray(snapshot?.gateways) ? snapshot.gateways : []
+  for (const gateway of gateways) {
+    const gatewayId =
+      typeof gateway === 'string'
+        ? gateway
+        : gateway && gateway.id
+          ? String(gateway.id)
+          : null
+    if (gatewayId) {
+      gatewayIds.add(gatewayId)
+    }
+  }
+  for (const gatewayId of Object.keys(gatewayNodes)) {
+    gatewayIds.add(String(gatewayId))
+  }
+
+  let publishedCount = 0
+  for (const gatewayId of gatewayIds) {
+    const nodes = Array.isArray(gatewayNodes[gatewayId])
+      ? gatewayNodes[gatewayId].map((nodeId) => String(nodeId))
+      : []
+    const payload = JSON.stringify({
+      type: 'gateway_whitelist',
+      gateway_id: gatewayId,
+      nodes,
+      updated_at: new Date().toISOString(),
+    })
+
+    await publishAedesPacket({
+      topic: `esp32/whitelist/${gatewayId}`,
+      payload: Buffer.from(payload),
+      qos: 1,
+      retain: true,
+    })
+    publishedCount += 1
+  }
+
+  console.log(`[whitelist-sync] published gateway whitelists: ${publishedCount}`)
+  mqttHandlers.emitBufferedGatewayUpdates()
+}
+
+const whiteListRouter = createWhitelistRouter({
+  deviceWhiteListService: deviceWhiteList,
+  onWhitelistUpdated: publishGatewayWhitelists,
+})
+
 /* ---------- API Routes ---------- */
 app.use('/v1/sensors', routeMetricData)
 app.use('/v1/whitelist', whiteListRouter)
@@ -146,6 +210,19 @@ aedes.on('connectionError', (client, err) => mqttHandlers.onConnectionError(clie
 /* ---------- MQTT TCP ---------- */
 const mqttServer = net.createServer(aedes.handle)
 const MQTT_PORT = 1883
+const WHITELIST_SYNC_INTERVAL_MS = Number(env.WHITELIST_SYNC_INTERVAL_MS || 30000)
+let whitelistSyncTimer = null
+
+const startWhitelistSyncLoop = () => {
+  if (whitelistSyncTimer) {
+    return
+  }
+  whitelistSyncTimer = setInterval(() => {
+    publishGatewayWhitelists(deviceWhiteList.getWhitelistSnapshot()).catch((error) => {
+      console.error('[whitelist-sync] periodic publish failed:', error.message)
+    })
+  }, WHITELIST_SYNC_INTERVAL_MS)
+}
 
 /* =========================
    Start Server
@@ -156,6 +233,8 @@ const host = env.APP_HOST || '0.0.0.0'
 const startServer = async () => {
   try {
     await connect()
+    await publishGatewayWhitelists(deviceWhiteList.getWhitelistSnapshot())
+    startWhitelistSyncLoop()
 
     server.listen(port, host, () => {
       console.log(`✓ HTTP/WebSocket server listening on http://${host}:${port}`)
