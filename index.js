@@ -190,6 +190,12 @@ const publishGatewayWhitelists = async (snapshot) => {
   mqttHandlers.emitBufferedGatewayUpdates()
 }
 
+deviceWhiteList.setWhitelistRefreshListener((snapshot, meta = {}) => {
+  const source = meta && meta.source ? meta.source : 'poll'
+  console.log(`[whitelist-sync] immediate publish after ${source}`)
+  return publishGatewayWhitelists(snapshot)
+})
+
 const whiteListRouter = createWhitelistRouter({
   deviceWhiteListService: deviceWhiteList,
   onWhitelistUpdated: publishGatewayWhitelists,

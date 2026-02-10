@@ -19,8 +19,27 @@ class DeviceActivityService {
     this.pollTimer = null;
     this.isFetching = false;
     this.gatewayStatuses = new Map();
+    this.whitelistRefreshListener = null;
     this.startPolling();
     void this.fetchWhitelist();
+  }
+
+  setWhitelistRefreshListener(listener) {
+    this.whitelistRefreshListener =
+      typeof listener === 'function' ? listener : null;
+  }
+
+  async notifyWhitelistRefreshed(source) {
+    if (!this.whitelistRefreshListener) {
+      return;
+    }
+    try {
+      await this.whitelistRefreshListener(this.getWhitelistSnapshot(), {
+        source: source || 'unknown',
+      });
+    } catch (error) {
+      console.error('[deviceActivityService] whitelist refresh listener failed:', error.message);
+    }
   }
 
   createEmptyWhitelist() {
@@ -134,10 +153,12 @@ class DeviceActivityService {
 
       this.remoteWhitelist = this.createWhitelistFromRaw(payload.data);
       this.applyMergedWhitelist();
+      await this.notifyWhitelistRefreshed('poll_success');
     } catch (error) {
       console.error('[deviceActivityService] failed to refresh whitelist:', error.message);
       this.remoteWhitelist = this.createEmptyWhitelist();
       this.applyMergedWhitelist();
+      await this.notifyWhitelistRefreshed('poll_failed');
     } finally {
       this.isFetching = false;
     }
