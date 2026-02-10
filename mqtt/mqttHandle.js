@@ -412,7 +412,7 @@ class MQTTHandlers {
         console.log("handleHeartbeat: " + payload);
         try {
             const data = JSON.parse(payload);
-            const { gateway_id, status, uptime, timestamp } = data;
+            const { gateway_id, gateway_ip, gateway_mac, status, uptime, timestamp } = data;
             if (!gateway_id) {
                 console.log("Heartbeat ignored: missing gateway_id");
                 return;
@@ -431,15 +431,21 @@ class MQTTHandlers {
 
             whitelistService.setGatewayStatus(gateway_id, normalizedStatus);
             const lastSeen = this.normalizeTimestamp(timestamp) || new Date();
-            const gatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
+            const previousGatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
+            const currentGatewayNetworkInfo = {
+                ip: gateway_ip || previousGatewayNetworkInfo.ip || null,
+                mac: gateway_mac || previousGatewayNetworkInfo.mac || null,
+            };
+
+            this.gatewayNetworkInfo.set(gateway_id, currentGatewayNetworkInfo);
 
             if (!this.nodeBuffer.has(gateway_id)) {
                 this.nodeBuffer.set(gateway_id, {
                     gateway_info: {
                         id: gateway_id,
                         name: 'Main Gateway',
-                        ip: gatewayNetworkInfo.ip || null,
-                        mac: gatewayNetworkInfo.mac || null,
+                        ip: currentGatewayNetworkInfo.ip,
+                        mac: currentGatewayNetworkInfo.mac,
                         status: whitelistService.getGatewayStatus(gateway_id),
                         registered,
                         lastSeen,
@@ -452,8 +458,16 @@ class MQTTHandlers {
             const buffer = this.nodeBuffer.get(gateway_id);
             buffer.gateway_info.id = gateway_id;
             buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
-            buffer.gateway_info.ip = buffer.gateway_info.ip || gatewayNetworkInfo.ip || null;
-            buffer.gateway_info.mac = buffer.gateway_info.mac || gatewayNetworkInfo.mac || null;
+            if (gateway_ip) {
+                buffer.gateway_info.ip = gateway_ip;
+            } else if (!buffer.gateway_info.ip) {
+                buffer.gateway_info.ip = currentGatewayNetworkInfo.ip;
+            }
+            if (gateway_mac) {
+                buffer.gateway_info.mac = gateway_mac;
+            } else if (!buffer.gateway_info.mac) {
+                buffer.gateway_info.mac = currentGatewayNetworkInfo.mac;
+            }
             buffer.gateway_info.status = whitelistService.getGatewayStatus(gateway_id);
             buffer.gateway_info.registered = registered;
             buffer.gateway_info.lastSeen = lastSeen;
