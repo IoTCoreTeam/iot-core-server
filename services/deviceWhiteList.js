@@ -19,8 +19,27 @@ class DeviceActivityService {
     this.pollTimer = null;
     this.isFetching = false;
     this.gatewayStatuses = new Map();
+    this.whitelistRefreshListener = null;
     this.startPolling();
     void this.fetchWhitelist();
+  }
+
+  setWhitelistRefreshListener(listener) {
+    this.whitelistRefreshListener =
+      typeof listener === 'function' ? listener : null;
+  }
+
+  async notifyWhitelistRefreshed(source) {
+    if (!this.whitelistRefreshListener) {
+      return;
+    }
+    try {
+      await this.whitelistRefreshListener(this.getWhitelistSnapshot(), {
+        source: source || 'unknown',
+      });
+    } catch (error) {
+      console.error('[deviceActivityService] whitelist refresh listener failed:', error.message);
+    }
   }
 
   createEmptyWhitelist() {
@@ -134,10 +153,12 @@ class DeviceActivityService {
 
       this.remoteWhitelist = this.createWhitelistFromRaw(payload.data);
       this.applyMergedWhitelist();
+      await this.notifyWhitelistRefreshed('poll_success');
     } catch (error) {
       console.error('[deviceActivityService] failed to refresh whitelist:', error.message);
       this.remoteWhitelist = this.createEmptyWhitelist();
       this.applyMergedWhitelist();
+      await this.notifyWhitelistRefreshed('poll_failed');
     } finally {
       this.isFetching = false;
     }
@@ -159,14 +180,17 @@ class DeviceActivityService {
     node_controllers = [],
     node_sensors = [],
   } = {}) {
-    this.manualWhitelist = this.createWhitelistFromRaw({
+    const nextWhitelist = this.createWhitelistFromRaw({
       gateways,
       nodes,
       gateway_nodes,
       node_controllers,
       node_sensors,
     });
-    console.log('[deviceActivityService] whitelist overridden manually');
+    // Treat manual override as authoritative; replace remote + manual.
+    this.remoteWhitelist = nextWhitelist;
+    this.manualWhitelist = this.createEmptyWhitelist();
+    console.log('[deviceActivityService] whitelist overridden (authoritative)');
     this.applyMergedWhitelist();
   }
 
