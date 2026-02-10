@@ -413,18 +413,52 @@ class MQTTHandlers {
         try {
             const data = JSON.parse(payload);
             const { gateway_id, status, uptime, timestamp } = data;
+            if (!gateway_id) {
+                console.log("Heartbeat ignored: missing gateway_id");
+                return;
+            }
 
             const normalizedStatus =
                 typeof status === 'string' &&
                 status.trim().toLowerCase() === 'online'
                     ? 'online'
                     : 'inactive';
-            const registered = deviceWhiteList.isGatewayAllowed(gateway_id);
+            const whitelistService = this.getWhitelistService();
+            const registered = this.isGatewayRegistered(gateway_id);
             if (!registered) {
                 console.log(`Heartbeat from non-whitelisted gateway: ${gateway_id}`);
             }
 
-            deviceWhiteList.setGatewayStatus(gateway_id, normalizedStatus);
+            whitelistService.setGatewayStatus(gateway_id, normalizedStatus);
+            const lastSeen = this.normalizeTimestamp(timestamp) || new Date();
+            const gatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
+
+            if (!this.nodeBuffer.has(gateway_id)) {
+                this.nodeBuffer.set(gateway_id, {
+                    gateway_info: {
+                        id: gateway_id,
+                        name: 'Main Gateway',
+                        ip: gatewayNetworkInfo.ip || null,
+                        mac: gatewayNetworkInfo.mac || null,
+                        status: whitelistService.getGatewayStatus(gateway_id),
+                        registered,
+                        lastSeen,
+                    },
+                    nodes: {},
+                    timer: null,
+                });
+            }
+
+            const buffer = this.nodeBuffer.get(gateway_id);
+            buffer.gateway_info.id = gateway_id;
+            buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
+            buffer.gateway_info.ip = buffer.gateway_info.ip || gatewayNetworkInfo.ip || null;
+            buffer.gateway_info.mac = buffer.gateway_info.mac || gatewayNetworkInfo.mac || null;
+            buffer.gateway_info.status = whitelistService.getGatewayStatus(gateway_id);
+            buffer.gateway_info.registered = registered;
+            buffer.gateway_info.lastSeen = lastSeen;
+
+            this.emitGatewayUpdate(buffer.gateway_info, buffer.nodes);
             console.log(`Heartbeat: ${gateway_id} (${normalizedStatus}) registered=${registered}`);
 
         } catch (error) {

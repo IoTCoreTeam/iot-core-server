@@ -29,6 +29,10 @@ Node.js service running:
   - topic: `esp32/whitelist/{gateway_id}`
   - payload: `type`, `gateway_id`, `nodes[]`, `updated_at`
   - each gateway only receives and applies node list mapped to itself (`gateway_nodes[gateway_id]`).
+- Gateway whitelist in firmware is in-memory only (no hardcoded per-gateway node list).
+- Gateway starts with runtime whitelist = `null`.
+- Gateway resets runtime whitelist back to `null` if no successful whitelist sync arrives within 60 seconds.
+- Each successful whitelist sync refreshes that 60-second timeout window.
 
 ## Auto Whitelist Source
 
