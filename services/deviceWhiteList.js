@@ -180,14 +180,17 @@ class DeviceActivityService {
     node_controllers = [],
     node_sensors = [],
   } = {}) {
-    this.manualWhitelist = this.createWhitelistFromRaw({
+    const nextWhitelist = this.createWhitelistFromRaw({
       gateways,
       nodes,
       gateway_nodes,
       node_controllers,
       node_sensors,
     });
-    console.log('[deviceActivityService] whitelist overridden manually');
+    // Treat manual override as authoritative; replace remote + manual.
+    this.remoteWhitelist = nextWhitelist;
+    this.manualWhitelist = this.createEmptyWhitelist();
+    console.log('[deviceActivityService] whitelist overridden (authoritative)');
     this.applyMergedWhitelist();
   }
 
