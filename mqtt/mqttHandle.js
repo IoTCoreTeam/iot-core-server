@@ -430,7 +430,18 @@ class MQTTHandlers {
         console.log("handleHeartbeat: " + payload);
         try {
             const data = JSON.parse(payload);
-            const { gateway_id, gateway_ip, gateway_mac, status, uptime, timestamp } = data;
+            const {
+                gateway_id,
+                gateway_ip,
+                gateway_mac,
+                ip,
+                mac,
+                ip_address,
+                mac_address,
+                status,
+                uptime,
+                timestamp
+            } = data;
             if (!gateway_id) {
                 console.log("Heartbeat ignored: missing gateway_id");
                 return;
@@ -449,10 +460,13 @@ class MQTTHandlers {
 
             whitelistService.setGatewayStatus(gateway_id, normalizedStatus);
             const lastSeen = this.normalizeTimestamp(timestamp) || new Date();
+            const resolvedGatewayIp = gateway_ip || ip || ip_address || null;
+            const resolvedGatewayMac = gateway_mac || mac || mac_address || null;
+
             const previousGatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
             const currentGatewayNetworkInfo = {
-                ip: gateway_ip || previousGatewayNetworkInfo.ip || null,
-                mac: gateway_mac || previousGatewayNetworkInfo.mac || null,
+                ip: resolvedGatewayIp || previousGatewayNetworkInfo.ip || null,
+                mac: resolvedGatewayMac || previousGatewayNetworkInfo.mac || null,
             };
 
             this.gatewayNetworkInfo.set(gateway_id, currentGatewayNetworkInfo);
@@ -476,13 +490,13 @@ class MQTTHandlers {
             const buffer = this.nodeBuffer.get(gateway_id);
             buffer.gateway_info.id = gateway_id;
             buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
-            if (gateway_ip) {
-                buffer.gateway_info.ip = gateway_ip;
+            if (resolvedGatewayIp) {
+                buffer.gateway_info.ip = resolvedGatewayIp;
             } else if (!buffer.gateway_info.ip) {
                 buffer.gateway_info.ip = currentGatewayNetworkInfo.ip;
             }
-            if (gateway_mac) {
-                buffer.gateway_info.mac = gateway_mac;
+            if (resolvedGatewayMac) {
+                buffer.gateway_info.mac = resolvedGatewayMac;
             } else if (!buffer.gateway_info.mac) {
                 buffer.gateway_info.mac = currentGatewayNetworkInfo.mac;
             }
