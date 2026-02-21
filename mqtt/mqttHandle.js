@@ -169,6 +169,7 @@ class MQTTHandlers {
             registered: this.isNodeRegisteredForGateway(gatewayId, nodeId),
             last_seen: this.formatTimestampForSse(nodeData.last_seen),
             node_type: nodeType,
+            devices: Array.isArray(nodeData.devices) ? nodeData.devices : [],
         };
     }
 
@@ -560,6 +561,7 @@ class MQTTHandlers {
                 heartbeat_seq,
                 gateway_timestamp,
                 sensor_rssi,
+                controller_states,
             } = data;
             const nodeType = this.resolveNodeType(node_id);
 
@@ -633,6 +635,27 @@ class MQTTHandlers {
 
             if (node_id) {
                 const existingNode = buffer.nodes[node_id] || {};
+                const controllerDevices = Array.isArray(controller_states)
+                    ? controller_states
+                          .map((item) => {
+                              if (!item || typeof item !== 'object') {
+                                  return null;
+                              }
+                              const deviceId = item.device || item.id || null;
+                              if (!deviceId) {
+                                  return null;
+                              }
+                              return {
+                                  id: `${node_id}-${deviceId}`,
+                                  type: item.kind || item.type || 'digital',
+                                  name: deviceId,
+                                  value: item.state ?? item.value ?? null,
+                                  status: item.state ?? item.value ?? null,
+                                  timestamp: lastSeen,
+                              };
+                          })
+                          .filter(Boolean)
+                    : null;
                 buffer.nodes[node_id] = {
                     ...existingNode,
                     id: node_id,
@@ -644,7 +667,7 @@ class MQTTHandlers {
                     node_type: nodeType,
                     last_seen: lastSeen,
                     rssi: sensor_rssi ?? existingNode.rssi ?? null,
-                    devices: Array.isArray(existingNode.devices) ? existingNode.devices : [],
+                    devices: controllerDevices || (Array.isArray(existingNode.devices) ? existingNode.devices : []),
                 };
             }
 
