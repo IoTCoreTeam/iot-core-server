@@ -173,6 +173,55 @@ class MQTTHandlers {
         };
     }
 
+    buildGatewaySnapshot(gatewayId, buffer) {
+        if (!buffer) {
+            return null;
+        }
+
+        const gatewayInfo = buffer.gateway_info || {};
+        const resolvedGatewayId = gatewayInfo.id ? String(gatewayInfo.id) : gatewayId ? String(gatewayId) : null;
+        if (!resolvedGatewayId) {
+            return null;
+        }
+
+        const payload = {
+            id: resolvedGatewayId,
+            name: gatewayInfo.name,
+            ip: gatewayInfo.ip || null,
+            mac: gatewayInfo.mac || null,
+            status: this.normalizeOnlineStatus(gatewayInfo.status),
+            registered: this.isGatewayRegistered(resolvedGatewayId),
+            lastSeen: this.formatTimestampForSse(gatewayInfo.lastSeen),
+        };
+
+        const nodes = buffer.nodes && typeof buffer.nodes === 'object'
+            ? Object.values(buffer.nodes)
+                  .map((node) => this.buildNodeSsePayload(resolvedGatewayId, node))
+                  .filter(Boolean)
+            : [];
+
+        if (nodes.length > 0) {
+            payload.nodes = nodes;
+        }
+
+        return payload;
+    }
+
+    getGatewaySnapshotList() {
+        if (!this.nodeBuffer || this.nodeBuffer.size === 0) {
+            return [];
+        }
+
+        const snapshots = [];
+        for (const [gatewayId, buffer] of this.nodeBuffer.entries()) {
+            const snapshot = this.buildGatewaySnapshot(gatewayId, buffer);
+            if (snapshot) {
+                snapshots.push(snapshot);
+            }
+        }
+        return snapshots;
+    }
+
     emitGatewayUpdate(gatewayInfo, nodes = null) {
         if (!this.sseService || !gatewayInfo) {
             return;

@@ -135,11 +135,21 @@ class ControlCommandService {
       throw error;
     }
 
-    const allowedDevices = ['pump', 'light'];
-    if (!allowedDevices.includes(command.device)) {
-      const error = new Error('device must be pump or light');
-      error.statusCode = 400;
-      throw error;
+    const allowAnyDevice =
+      String(this.config?.CONTROL_ALLOW_ANY_DEVICE || '')
+        .trim()
+        .toLowerCase() === 'true';
+    if (!allowAnyDevice) {
+      const rawAllowed = String(this.config?.CONTROL_ALLOWED_DEVICES || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const allowedDevices = rawAllowed.length > 0 ? rawAllowed : ['pump', 'light'];
+      if (!allowedDevices.includes(command.device)) {
+        const error = new Error(`device must be one of: ${allowedDevices.join(', ')}`);
+        error.statusCode = 400;
+        throw error;
+      }
     }
 
     const allowedStates = ['on', 'off'];

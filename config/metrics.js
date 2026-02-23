@@ -1,0 +1,56 @@
+const metrics = [
+  {
+    key: 'temperature',
+    title: 'Temperature',
+    subtitle: 'Temperature',
+    value: 28.4,
+    unit: 'C',
+    icon: 'thermometer-half',
+    change: 0.7,
+    description: 'Ambient temperature in the greenhouse.',
+  },
+  {
+    key: 'soilMoisture',
+    title: 'Soil moisture',
+    subtitle: 'Soil moisture',
+    value: 48,
+    unit: '%',
+    icon: 'droplet-half',
+    change: 1.8,
+    description: 'Keep between 40-60% for healthy roots.',
+  },
+  {
+    key: 'light',
+    title: 'Light',
+    subtitle: 'Light intensity',
+    value: 820,
+    unit: 'lux',
+    icon: 'sun',
+    change: -1.2,
+    description: 'Light intensity at the main sensor.',
+  },
+  {
+    key: 'rain',
+    title: 'Rain',
+    subtitle: 'Rain gauge',
+    value: 0.6,
+    unit: 'mm',
+    icon: 'cloud-rain',
+    change: -5.4,
+    description: 'Rain volume in the last hour.',
+  },
+  {
+    key: 'airHumidity',
+    title: 'Air humidity',
+    subtitle: 'Air humidity',
+    value: 63,
+    unit: '%',
+    icon: 'droplet',
+    change: 2.1,
+    description: 'Ideal range 55-70% for most plants.',
+  },
+];
+
+module.exports = {
+  metrics,
+};

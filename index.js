@@ -5,9 +5,12 @@ const { Server } = require('socket.io')
 const aedes = require('aedes')()
 
 const { routeMetricData } = require('./routes/routeMetricData')
+const { routeMetrics } = require('./routes/routeMetrics')
 const { createWhitelistRouter } = require('./routes/routeWhiteList')
 const { createControlRoute } = require('./routes/routeControl')
+const { createDeviceStatusRoute } = require('./routes/routeDeviceStatus')
 const { createControlController } = require('./controllers/controlController')
+const { createDeviceStatusController } = require('./controllers/deviceStatusController')
 const { connect, close, getDb } = require('./config/db')
 const env = require('./config/env')
 const deviceWhiteList = require('./services/deviceWhiteList')
@@ -130,6 +133,11 @@ const controlCommandService = new ControlCommandService({
 })
 const controlController = createControlController({ controlCommandService })
 const routeControl = createControlRoute(controlController)
+const deviceStatusController = createDeviceStatusController({
+  mqttHandlers,
+  controlCommandService,
+})
+const routeDeviceStatus = createDeviceStatusRoute(deviceStatusController)
 
 const publishAedesPacket = (packet) =>
   new Promise((resolve, reject) => {
@@ -203,8 +211,10 @@ const whiteListRouter = createWhitelistRouter({
 
 /* ---------- API Routes ---------- */
 app.use('/v1/sensors', routeMetricData)
+app.use('/v1/metrics', routeMetrics)
 app.use('/v1/whitelist', whiteListRouter)
 app.use('/v1/control', routeControl)
+app.use('/v1/device-status', routeDeviceStatus)
 
 aedes.on('client', (client) => mqttHandlers.onClientConnected(client))
 aedes.on('clientDisconnect', (client) => mqttHandlers.onClientDisconnected(client))
