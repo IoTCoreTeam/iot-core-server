@@ -35,8 +35,10 @@ function createControlController({ controlCommandService }) {
       const result = controlCommandService.enqueue({
         gateway_id: body.gateway_id,
         node_id: body.node_id,
+        action_type: body.action_type ?? null,
         device,
         state: body.state,
+        value: body.value,
         delayMs: body.delayMs,
       });
 

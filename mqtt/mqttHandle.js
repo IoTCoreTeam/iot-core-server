@@ -22,6 +22,7 @@ class MQTTHandlers {
         this.gatewayNetworkInfo = new Map();
         this.HEARTBEAT_SUMMARY_INTERVAL = 30000;
         this.lastHeartbeatSummaryAt = 0;
+        this.HEARTBEAT_TIMEOUT_MS = Number(this.config?.HEARTBEAT_TIMEOUT_MS || 45000);
     }
 
     get db() {
@@ -282,6 +283,57 @@ class MQTTHandlers {
 
             this.emitGatewayUpdate(buffer.gateway_info, buffer.nodes);
         }
+    }
+
+    markHeartbeatTimeouts(now = new Date()) {
+        if (!this.nodeBuffer || this.nodeBuffer.size === 0) {
+            return false;
+        }
+
+        let changed = false;
+        const whitelistService = this.getWhitelistService();
+
+        for (const [gatewayId, buffer] of this.nodeBuffer.entries()) {
+            if (!buffer || !buffer.gateway_info) {
+                continue;
+            }
+
+            const gatewayLastSeen = this.normalizeTimestamp(buffer.gateway_info.lastSeen || buffer.gateway_info.last_seen);
+            const gatewayStale = gatewayLastSeen
+                ? now.getTime() - gatewayLastSeen.getTime() > this.HEARTBEAT_TIMEOUT_MS
+                : false;
+
+            if (gatewayStale && buffer.gateway_info.status !== 'offline') {
+                buffer.gateway_info.status = 'offline';
+                if (typeof whitelistService.setGatewayStatus === 'function' && gatewayId) {
+                    whitelistService.setGatewayStatus(String(gatewayId), 'offline');
+                }
+                changed = true;
+            }
+
+            if (buffer.nodes && typeof buffer.nodes === 'object') {
+                for (const [nodeId, nodeData] of Object.entries(buffer.nodes)) {
+                    if (!nodeData || typeof nodeData !== 'object') {
+                        continue;
+                    }
+                    const nodeLastSeen = this.normalizeTimestamp(nodeData.last_seen || nodeData.lastSeen);
+                    const nodeStale = nodeLastSeen
+                        ? now.getTime() - nodeLastSeen.getTime() > this.HEARTBEAT_TIMEOUT_MS
+                        : false;
+                    if (nodeStale && nodeData.status !== 'offline') {
+                        nodeData.status = 'offline';
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed) {
+                buffer.gateway_info.id = buffer.gateway_info.id || gatewayId;
+                this.emitGatewayUpdate(buffer.gateway_info, buffer.nodes);
+            }
+        }
+
+        return changed;
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -21,10 +21,11 @@ class ControlCommandService {
     const job = {
       gateway_id: command.gateway_id,
       node_id: command.node_id || null,
-      device: command.device,
-      state: command.state,
+      action_type: command.action_type ?? null,
+      device: command.device ?? null,
+      state: command.state ?? null,
+      value: command.value ?? null,
       delayMs,
-      action_type: command.action_type || 'relay_control',
       requested_at: new Date().toISOString(),
     };
 
@@ -89,6 +90,7 @@ class ControlCommandService {
       action_type: command.action_type,
       device: command.device,
       state: command.state,
+      value: command.value ?? null,
       requested_at: command.requested_at || new Date().toISOString(),
     });
 
@@ -124,40 +126,8 @@ class ControlCommandService {
       error.statusCode = 400;
       throw error;
     }
-    if (!command.device) {
-      const error = new Error('device is required');
-      error.statusCode = 400;
-      throw error;
-    }
-    if (!command.state) {
-      const error = new Error('state is required');
-      error.statusCode = 400;
-      throw error;
-    }
 
-    const allowAnyDevice =
-      String(this.config?.CONTROL_ALLOW_ANY_DEVICE || '')
-        .trim()
-        .toLowerCase() === 'true';
-    if (!allowAnyDevice) {
-      const rawAllowed = String(this.config?.CONTROL_ALLOWED_DEVICES || '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
-      const allowedDevices = rawAllowed.length > 0 ? rawAllowed : ['pump', 'light'];
-      if (!allowedDevices.includes(command.device)) {
-        const error = new Error(`device must be one of: ${allowedDevices.join(', ')}`);
-        error.statusCode = 400;
-        throw error;
-      }
-    }
-
-    const allowedStates = ['on', 'off'];
-    if (!allowedStates.includes(command.state)) {
-      const error = new Error('state must be on or off');
-      error.statusCode = 400;
-      throw error;
-    }
+    // No action_type validation here; payload is pass-through to firmware.
   }
 
   validateWhitelist(command) {
@@ -186,6 +156,7 @@ class ControlCommandService {
       throw error;
     }
   }
+
 }
 
 module.exports = ControlCommandService;

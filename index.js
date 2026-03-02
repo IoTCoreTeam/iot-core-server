@@ -227,7 +227,9 @@ aedes.on('connectionError', (client, err) => mqttHandlers.onConnectionError(clie
 const mqttServer = net.createServer(aedes.handle)
 const MQTT_PORT = 1883
 const WHITELIST_SYNC_INTERVAL_MS = Number(env.WHITELIST_SYNC_INTERVAL_MS || 30000)
+const HEARTBEAT_CHECK_INTERVAL_MS = Number(env.HEARTBEAT_CHECK_INTERVAL_MS || 5000)
 let whitelistSyncTimer = null
+let heartbeatCheckTimer = null
 
 const startWhitelistSyncLoop = () => {
   if (whitelistSyncTimer) {
@@ -238,6 +240,19 @@ const startWhitelistSyncLoop = () => {
       console.error('[whitelist-sync] periodic publish failed:', error.message)
     })
   }, WHITELIST_SYNC_INTERVAL_MS)
+}
+
+const startHeartbeatCheckLoop = () => {
+  if (heartbeatCheckTimer) {
+    return
+  }
+  heartbeatCheckTimer = setInterval(() => {
+    try {
+      mqttHandlers.markHeartbeatTimeouts(new Date())
+    } catch (error) {
+      console.error('[heartbeat-check] failed:', error.message)
+    }
+  }, HEARTBEAT_CHECK_INTERVAL_MS)
 }
 
 /* =========================
@@ -251,6 +266,7 @@ const startServer = async () => {
     await connect()
     await publishGatewayWhitelists(deviceWhiteList.getWhitelistSnapshot())
     startWhitelistSyncLoop()
+    startHeartbeatCheckLoop()
 
     server.listen(port, host, () => {
       console.log(`✓ HTTP/WebSocket server listening on http://${host}:${port}`)
