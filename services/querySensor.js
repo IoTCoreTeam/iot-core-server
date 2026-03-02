@@ -51,26 +51,43 @@ const getMetricData = async (query = {}) => {
     metric: selectedMetric ? selectedMetric : { $exists: true }
   }
 
-  const pipeline = [
-    { $match: match },
-    { $sort: { timestamp: -1 } },
-    { $skip: skip },
-    { $limit: limit },
-    {
-      $project: {
-        _id: 1,
-        gateway_id: 1,
-        node_id: 1,
-        sensor_id: 1,
-        metric: 1,
-        value: 1,
-        unit: 1,
-        timestamp: 1,
-        raw: 1
-      }
-    },
-    { $sort: { timestamp: 1 } }
-  ]
+  const baseProject = {
+    _id: 1,
+    gateway_id: 1,
+    node_id: 1,
+    sensor_id: 1,
+    metric: 1,
+    value: 1,
+    unit: 1,
+    timestamp: 1,
+    raw: 1
+  }
+
+  const pipeline = sensorIds.length > 0
+    ? [
+        { $match: match },
+        { $sort: { timestamp: -1 } },
+        {
+          $group: {
+            _id: '$sensor_id',
+            doc: { $first: '$$ROOT' }
+          }
+        },
+        { $replaceRoot: { newRoot: '$doc' } },
+        { $sort: { timestamp: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $project: baseProject },
+        { $sort: { timestamp: 1 } }
+      ]
+    : [
+        { $match: match },
+        { $sort: { timestamp: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $project: baseProject },
+        { $sort: { timestamp: 1 } }
+      ]
 
   return aggregateData(pipeline)
 }
