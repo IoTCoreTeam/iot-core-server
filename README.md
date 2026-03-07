@@ -13,6 +13,19 @@ The architecture of the IoT Core Server consists of:
 - **IoT Core Server:** The main server that processes incoming data, manages device connections, and facilitates data exchanges.
 - **Cloud Services:** External services utilized for data storage, processing, and machine learning capabilities.
 
+## Service Overview
+- `controlAppService`: Application layer to enqueue control commands or build device-specific commands, and expose queue health.
+- `controlQueueService`: Control command queue; enforces whitelist, handles delays, and publishes MQTT messages to gateways.
+- `deviceStatusAppService`: Reads gateway snapshots from MQTT handlers and provides a utility to force all digital devices to `off`.
+- `deviceWhitelistService`: Polls the control module for allowed gateways/nodes, merges whitelists, and tracks gateway status.
+- `gatewaySseService`: Streams SSE events so clients receive real-time gateway updates.
+- `metricCatalogService`: Exposes the configured metric catalog and returns metric-to-node mappings.
+- `metricNodeMapService`: Aggregates sensor data to map metrics to the nodes that reported them.
+- `metricQueryService`: Facade for metric data queries and a placeholder metric limit response.
+- `sensorDataSaveService`: Persists sensor data to MongoDB and marks gateways online when data arrives.
+- `sensorQueryService`: Queries sensor data by metric/sensor/node/gateway with pagination.
+- `whitelistSyncService`: Returns whitelist snapshots and allows overrides, optionally notifying downstream updates.
+
 ## Setup Tutorial
 ### Prerequisites
 - Install [Node.js](https://nodejs.org/) version 14 or greater.
