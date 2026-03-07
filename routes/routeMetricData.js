@@ -1,11 +1,14 @@
 const express = require('express')
-const { fetchMetricData, fetchMetricLimit } = require('../controllers/sensorController')
 
-const routeMetricData = express.Router()
+function createMetricDataRoute(controller) {
+  const router = express.Router()
 
-routeMetricData.get('/query', fetchMetricData)
-routeMetricData.get('/metric-limit/:metric', fetchMetricLimit)
+  router.get('/query', controller.fetchMetricData)
+  router.get('/metric-limit/:metric', controller.fetchMetricLimit)
+
+  return router
+}
 
 module.exports = {
-  routeMetricData
+  createMetricDataRoute
 }

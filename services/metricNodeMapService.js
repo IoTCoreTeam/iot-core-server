@@ -1,4 +1,4 @@
-const { aggregateData } = require('../models/sensorModel')
+const { aggregateData } = require('../models')
 const { metrics } = require('../config/metrics')
 
 const normalizeMetric = (value) => {

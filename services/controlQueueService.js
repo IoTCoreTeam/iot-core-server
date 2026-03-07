@@ -1,4 +1,4 @@
-class ControlCommandService {
+class ControlQueueService {
   constructor({ aedes, deviceWhitelist, config = {} }) {
     this.aedes = aedes;
     this.deviceWhitelist = deviceWhitelist;
@@ -31,7 +31,7 @@ class ControlCommandService {
 
     this.queue.push(job);
     this.processQueue().catch((error) => {
-      console.error('[controlCommandService] Queue error:', error.message);
+      console.error('[controlQueueService] Queue error:', error.message);
     });
 
     return {
@@ -112,7 +112,7 @@ class ControlCommandService {
       );
     });
 
-    console.log(`[controlCommandService] Published to ${topic}: ${payload}`);
+    console.log(`[controlQueueService] Published to ${topic}: ${payload}`);
 
     return {
       topic,
@@ -159,4 +159,4 @@ class ControlCommandService {
 
 }
 
-module.exports = ControlCommandService;
+module.exports = ControlQueueService;

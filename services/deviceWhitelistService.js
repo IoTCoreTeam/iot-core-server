@@ -63,12 +63,6 @@ class DeviceActivityService {
         const validNodes = Array.isArray(nodeList) ? nodeList.map(String) : [];
         map.set(String(gatewayId), new Set(validNodes));
       }
-    } else if (gateways.length === 1) {
-      map.set(gateways[0], new Set(nodes));
-    } else if (gateways.length > 1 && nodes.length > 0) {
-      console.warn(
-        '[deviceActivityService] gateway_nodes is missing while multiple gateways exist. Node mapping is empty per gateway.'
-      );
     }
 
     for (const gatewayId of gateways) {

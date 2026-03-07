@@ -1,80 +1,68 @@
-function createControlController({ controlCommandService }) {
-  if (!controlCommandService) {
-    throw new Error('controlCommandService is required');
+function createControlController({ controlService }) {
+  if (!controlService) {
+    throw new Error('controlService is required')
   }
 
   async function enqueueCommand(req, res) {
     try {
-      const result = controlCommandService.enqueue(req.body || {});
+      const result = controlService.enqueueCommand(req.body || {})
       return res.json({
         success: true,
         message: 'Command queued',
-        data: result,
-      });
+        data: result
+      })
     } catch (error) {
-      console.error('[controlController] enqueueCommand:', error.message);
-      const status = error.statusCode || 500;
+      console.error('[controlController] enqueueCommand:', error.message)
+      const status = error.statusCode || 500
       return res.status(status).json({
         success: false,
-        message: error.message,
-      });
+        message: error.message
+      })
     }
   }
 
   async function commandPump(req, res) {
-    return commandDevice(req, res, 'pump');
+    return commandDevice(req, res, 'pump')
   }
 
   async function commandLight(req, res) {
-    return commandDevice(req, res, 'light');
+    return commandDevice(req, res, 'light')
   }
 
   async function commandDevice(req, res, device) {
     try {
-      const body = req.body || {};
-      const result = controlCommandService.enqueue({
-        gateway_id: body.gateway_id,
-        node_id: body.node_id,
-        action_type: body.action_type ?? null,
-        device,
-        state: body.state,
-        value: body.value,
-        delayMs: body.delayMs,
-      });
-
+      const result = controlService.commandDevice(req.body || {}, device)
       return res.json({
         success: true,
         message: `${device} command queued`,
-        data: result,
-      });
+        data: result
+      })
     } catch (error) {
-      console.error(`[controlController] commandDevice(${device}):`, error.message);
-      const status = error.statusCode || 500;
+      console.error(`[controlController] commandDevice(${device}):`, error.message)
+      const status = error.statusCode || 500
       return res.status(status).json({
         success: false,
-        message: error.message,
-      });
+        message: error.message
+      })
     }
   }
 
-  function health(req, res) {
+  function health(_req, res) {
+    const data = controlService.health()
     return res.json({
       success: true,
-      data: {
-        queued: controlCommandService.size(),
-        processing: controlCommandService.isProcessing(),
-      },
-    });
+      data
+    })
   }
 
   return {
     enqueueCommand,
     commandPump,
     commandLight,
-    health,
-  };
+    health
+  }
 }
 
 module.exports = {
-  createControlController,
-};
+  createControlController
+}

@@ -1,16 +1,18 @@
-const express = require('express');
+const express = require('express')
 
 function createControlRoute(controller) {
-  const router = express.Router();
+  const router = express.Router()
 
-  router.get('/health', controller.health);
-  router.post('/enqueue', controller.enqueueCommand);
-  router.post('/pump', controller.commandPump);
-  router.post('/light', controller.commandLight);
+  router.get('/health', controller.health)
+  router.post('/enqueue', controller.enqueueCommand)
 
-  return router;
+  // có thể thêm các route khác cho từng thiết bị nếu cần, ví dụ:
+  router.post('/pump', controller.commandPump)
+  router.post('/light', controller.commandLight)
+
+  return router
 }
 
 module.exports = {
-  createControlRoute,
-};
+  createControlRoute
+}

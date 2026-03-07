@@ -1,14 +1,14 @@
-const express = require('express');
-const { metrics } = require('../config/metrics');
-const { fetchMetricNodes } = require('../controllers/metricController');
+const express = require('express')
 
-const routeMetrics = express.Router();
+function createMetricsRoute(controller) {
+  const router = express.Router()
 
-routeMetrics.get('/', (_req, res) => {
-  res.json(metrics);
-});
-routeMetrics.get('/nodes', fetchMetricNodes);
+  router.get('/', controller.listMetrics)
+  router.get('/nodes', controller.fetchMetricNodes)
+
+  return router
+}
 
 module.exports = {
-  routeMetrics,
-};
+  createMetricsRoute
+}

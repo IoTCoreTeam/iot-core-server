@@ -1,14 +1,14 @@
-const express = require('express');
+const express = require('express')
 
 function createDeviceStatusRoute(controller) {
-  const router = express.Router();
+  const router = express.Router()
 
-  router.get('/', controller.getStatus);
-  router.post('/ensure-off', controller.ensureAllDigitalOff);
+  router.get('/', controller.getStatus)
+  router.post('/ensure-off', controller.ensureAllDigitalOff)
 
-  return router;
+  return router
 }
 
 module.exports = {
-  createDeviceStatusRoute,
-};
+  createDeviceStatusRoute
+}
