@@ -1,5 +1,61 @@
+function parseGPS(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value === 'string') {
+        try {
+            return JSON.parse(value);
+        } catch (error) {
+            return null;
+        }
+    }
+    return null;
+}
+
+function resolveGPSLocation(gps, fallback = {}) {
+    const parsedGPS = parseGPS(gps);
+    const lat = Number(
+        parsedGPS?.lat ??
+        parsedGPS?.latitude ??
+        fallback.lat ??
+        fallback.latitude
+    );
+    const lng = Number(
+        parsedGPS?.lng ??
+        parsedGPS?.longitude ??
+        fallback.lng ??
+        fallback.longitude
+    );
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return null;
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return null;
+    }
+    return { lat, lng };
+}
+
+function normalizeConnectedNodes(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    if (typeof value === 'string') {
+        try {
+            const parsed = JSON.parse(value);
+            if (Array.isArray(parsed)) {
+                return parsed.map((item) => String(item).trim()).filter(Boolean);
+            }
+        } catch (error) {
+            // ignore parse error, fallback to CSV split
+        }
+        return value.split(',').map((item) => item.trim()).filter(Boolean);
+    }
+    return [];
+}
+
 async function handleNodeHeartbeat(payload, client) {
     try {
+        console.log("handleNodeHeartbeat: " + payload);
         const data = JSON.parse(payload);
         const {
             gateway_id,
@@ -14,8 +70,17 @@ async function handleNodeHeartbeat(payload, client) {
             gateway_timestamp,
             sensor_rssi,
             controller_states,
+            gps,
+            lat,
+            lng,
+            latitude,
+            longitude,
+            connected_nodes,
+            connectedNodes,
         } = data;
         const nodeType = this.resolveNodeType(node_id);
+        const location = resolveGPSLocation(gps, { lat, lng, latitude, longitude });
+        const resolvedConnectedNodes = normalizeConnectedNodes(connected_nodes ?? connectedNodes);
 
         const whitelistService = this.getWhitelistService();
         const gatewayRegistered = this.isGatewayRegistered(gateway_id);
@@ -43,6 +108,8 @@ async function handleNodeHeartbeat(payload, client) {
             status: normalizedNodeStatus,
             ip: node_ip || null,
             mac: node_mac || null,
+            lat: location?.lat ?? null,
+            lng: location?.lng ?? null,
         });
 
         const previousGatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
@@ -119,7 +186,12 @@ async function handleNodeHeartbeat(payload, client) {
                 node_type: nodeType,
                 last_seen: lastSeen,
                 rssi: sensor_rssi ?? existingNode.rssi ?? null,
+                lat: location?.lat ?? existingNode.lat ?? null,
+                lng: location?.lng ?? existingNode.lng ?? null,
                 devices: controllerDevices || (Array.isArray(existingNode.devices) ? existingNode.devices : []),
+                connected_nodes: resolvedConnectedNodes.length > 0
+                    ? resolvedConnectedNodes
+                    : (Array.isArray(existingNode.connected_nodes) ? existingNode.connected_nodes : []),
             };
         }
 

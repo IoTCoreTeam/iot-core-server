@@ -133,6 +133,8 @@ async function handleSensorData(payload, client) {
             name: existingNode.name || `Environmental Node ${node_id === 'node-001' ? '#1' : '#2'}`,
             ip: node_ip || existingNode.ip || heartbeatNodeInfo.ip || null,
             mac: node_mac || existingNode.mac || heartbeatNodeInfo.mac || null,
+            lat: existingNode.lat ?? heartbeatNodeInfo.lat ?? null,
+            lng: existingNode.lng ?? heartbeatNodeInfo.lng ?? null,
             status: 'online',
             registered: isNodeRegistered,
             last_seen: readingTime,

@@ -18,11 +18,14 @@ function buildNodeSsePayload(handler, gatewayId, nodeData) {
             : nodeId,
         ip: nodeData.ip || null,
         mac: nodeData.mac || null,
+        lat: typeof nodeData.lat === 'number' ? nodeData.lat : null,
+        lng: typeof nodeData.lng === 'number' ? nodeData.lng : null,
         status: normalizeOnlineStatus(nodeData.status),
         registered: isNodeRegisteredForGateway(handler, gatewayId, nodeId),
         last_seen: formatTimestampForSse(nodeData.last_seen),
         node_type: nodeType,
         devices: Array.isArray(nodeData.devices) ? nodeData.devices : [],
+        connected_nodes: Array.isArray(nodeData.connected_nodes) ? nodeData.connected_nodes : [],
     };
 }
 
