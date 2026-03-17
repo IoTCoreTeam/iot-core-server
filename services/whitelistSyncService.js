@@ -6,14 +6,15 @@ function createWhitelistService({ deviceWhiteListService, onWhitelistUpdated } =
   const getSnapshot = () => deviceWhiteListService.getWhitelistSnapshot()
 
   const overrideWhitelist = async (payload = {}) => {
-    const { gateways, nodes, gateway_nodes, node_controllers, node_sensors } = payload
+    const { gateways, nodes, gateway_nodes, node_controllers, node_sensors, node_managed_areas } = payload
 
     deviceWhiteListService.overrideWhitelist({
       gateways,
       nodes,
       gateway_nodes,
       node_controllers,
-      node_sensors
+      node_sensors,
+      node_managed_areas
     })
 
     const snapshot = deviceWhiteListService.getWhitelistSnapshot()

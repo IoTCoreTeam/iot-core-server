@@ -22,6 +22,7 @@ function buildNodeSsePayload(handler, gatewayId, nodeData) {
         lng: typeof nodeData.lng === 'number' ? nodeData.lng : null,
         status: normalizeOnlineStatus(nodeData.status),
         registered: isNodeRegisteredForGateway(handler, gatewayId, nodeId),
+        inside_map: typeof nodeData.inside_map === 'boolean' ? nodeData.inside_map : null,
         last_seen: formatTimestampForSse(nodeData.last_seen),
         node_type: nodeType,
         devices: Array.isArray(nodeData.devices) ? nodeData.devices : [],

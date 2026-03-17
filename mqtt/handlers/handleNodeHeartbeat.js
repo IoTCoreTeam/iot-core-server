@@ -89,6 +89,11 @@ async function handleNodeHeartbeat(payload, client) {
         }
 
         const isNodeAllowed = this.isNodeRegisteredForGateway(gateway_id, node_id);
+        const isInsideManagedArea = whitelistService.isNodeInsideManagedArea(
+            node_id,
+            location?.lat,
+            location?.lng
+        );
 
         if (!isNodeAllowed) {
             console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id} type=${nodeType}`);
@@ -110,6 +115,7 @@ async function handleNodeHeartbeat(payload, client) {
             mac: node_mac || null,
             lat: location?.lat ?? null,
             lng: location?.lng ?? null,
+            inside_map: isInsideManagedArea,
         });
 
         const previousGatewayNetworkInfo = this.gatewayNetworkInfo.get(gateway_id) || {};
@@ -188,6 +194,7 @@ async function handleNodeHeartbeat(payload, client) {
                 rssi: sensor_rssi ?? existingNode.rssi ?? null,
                 lat: location?.lat ?? existingNode.lat ?? null,
                 lng: location?.lng ?? existingNode.lng ?? null,
+                inside_map: isInsideManagedArea,
                 devices: controllerDevices || (Array.isArray(existingNode.devices) ? existingNode.devices : []),
                 connected_nodes: resolvedConnectedNodes.length > 0
                     ? resolvedConnectedNodes

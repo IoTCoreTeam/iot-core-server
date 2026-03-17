@@ -49,7 +49,47 @@ class DeviceActivityService {
       gatewayNodes: new Map(),
       nodeControllers: new Set(),
       nodeSensors: new Set(),
+      nodeManagedAreas: new Map(),
     };
+  }
+
+  normalizeManagedArea(rawArea = {}) {
+    const geometry = rawArea?.geometry && typeof rawArea.geometry === 'object'
+      ? rawArea.geometry
+      : null;
+    const bbox = Array.isArray(rawArea?.bbox) ? rawArea.bbox : null;
+    const id = rawArea?.id ?? null;
+    const name = typeof rawArea?.name === 'string' ? rawArea.name : null;
+    const geomType = typeof rawArea?.geom_type === 'string'
+      ? rawArea.geom_type
+      : (typeof geometry?.type === 'string' ? geometry.type : null);
+
+    return {
+      id,
+      name,
+      geom_type: geomType,
+      geometry,
+      bbox,
+    };
+  }
+
+  createNodeManagedAreasMap(nodeManagedAreasRaw) {
+    const map = new Map();
+    if (!nodeManagedAreasRaw || typeof nodeManagedAreasRaw !== 'object' || Array.isArray(nodeManagedAreasRaw)) {
+      return map;
+    }
+
+    for (const [nodeId, areas] of Object.entries(nodeManagedAreasRaw)) {
+      if (!nodeId) {
+        continue;
+      }
+      const normalizedAreas = Array.isArray(areas)
+        ? areas.map((area) => this.normalizeManagedArea(area))
+        : [];
+      map.set(String(nodeId), normalizedAreas);
+    }
+
+    return map;
   }
 
   createGatewayNodeMap(gateways, nodes, gatewayNodesRaw) {
@@ -80,6 +120,7 @@ class DeviceActivityService {
     gateway_nodes = null,
     node_controllers = [],
     node_sensors = [],
+    node_managed_areas = null,
   } = {}) {
     const gatewayList = Array.isArray(gateways) ? gateways.map(String) : [];
     const nodeList = Array.isArray(nodes) ? nodes.map(String) : [];
@@ -94,7 +135,25 @@ class DeviceActivityService {
       gatewayNodes: this.createGatewayNodeMap(gatewayList, nodeList, gateway_nodes),
       nodeControllers: new Set(controllerList),
       nodeSensors: new Set(sensorList),
+      nodeManagedAreas: this.createNodeManagedAreasMap(node_managed_areas),
     };
+  }
+
+  mergeNodeManagedAreasMaps(primary, secondary) {
+    const merged = new Map();
+    const mergeMap = (source) => {
+      if (!(source instanceof Map)) {
+        return;
+      }
+      for (const [nodeId, areas] of source.entries()) {
+        const normalizedAreas = Array.isArray(areas) ? areas : [];
+        merged.set(nodeId, normalizedAreas);
+      }
+    };
+
+    mergeMap(primary);
+    mergeMap(secondary);
+    return merged;
   }
 
   mergeGatewayNodeMaps(primary, secondary) {
@@ -124,6 +183,7 @@ class DeviceActivityService {
       gatewayNodes: this.mergeGatewayNodeMaps(base.gatewayNodes, extra.gatewayNodes),
       nodeControllers: new Set([...base.nodeControllers, ...extra.nodeControllers]),
       nodeSensors: new Set([...base.nodeSensors, ...extra.nodeSensors]),
+      nodeManagedAreas: this.mergeNodeManagedAreasMaps(base.nodeManagedAreas, extra.nodeManagedAreas),
     };
   }
 
@@ -173,6 +233,7 @@ class DeviceActivityService {
     gateway_nodes = null,
     node_controllers = [],
     node_sensors = [],
+    node_managed_areas = null,
   } = {}) {
     const nextWhitelist = this.createWhitelistFromRaw({
       gateways,
@@ -180,6 +241,7 @@ class DeviceActivityService {
       gateway_nodes,
       node_controllers,
       node_sensors,
+      node_managed_areas,
     });
     // Treat manual override as authoritative; replace remote + manual.
     this.remoteWhitelist = nextWhitelist;
@@ -203,6 +265,7 @@ class DeviceActivityService {
       gateway_nodes: gatewayNodes,
       node_controllers: Array.from(current.nodeControllers),
       node_sensors: Array.from(current.nodeSensors),
+      node_managed_areas: Object.fromEntries(current.nodeManagedAreas),
     };
   }
 
@@ -237,6 +300,104 @@ class DeviceActivityService {
       return false;
     }
     return this.whitelist.nodeSensors.has(String(sensorId));
+  }
+
+  getManagedAreasForNode(nodeId) {
+    if (!this.whitelist || !nodeId) {
+      return [];
+    }
+    return this.whitelist.nodeManagedAreas.get(String(nodeId)) || [];
+  }
+
+  isPointInsideBbox(lat, lng, bbox) {
+    if (!Array.isArray(bbox) || bbox.length < 4) {
+      return false;
+    }
+    const minLng = Number(bbox[0]);
+    const minLat = Number(bbox[1]);
+    const maxLng = Number(bbox[2]);
+    const maxLat = Number(bbox[3]);
+
+    if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
+      return false;
+    }
+    return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+  }
+
+  isPointInsideRing(lat, lng, ring) {
+    if (!Array.isArray(ring) || ring.length < 3) {
+      return false;
+    }
+
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = Number(ring[i]?.[0]);
+      const yi = Number(ring[i]?.[1]);
+      const xj = Number(ring[j]?.[0]);
+      const yj = Number(ring[j]?.[1]);
+
+      if (![xi, yi, xj, yj].every(Number.isFinite)) {
+        continue;
+      }
+
+      const intersects = ((yi > lat) !== (yj > lat))
+        && (lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+
+      if (intersects) {
+        inside = !inside;
+      }
+    }
+
+    return inside;
+  }
+
+  isPointInsideGeometry(lat, lng, geometry, bbox = null) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return false;
+    }
+
+    if (this.isPointInsideBbox(lat, lng, bbox) === false && Array.isArray(bbox)) {
+      return false;
+    }
+
+    if (!geometry || typeof geometry !== 'object') {
+      return this.isPointInsideBbox(lat, lng, bbox);
+    }
+
+    const type = String(geometry.type || '').toLowerCase();
+    const coordinates = geometry.coordinates;
+
+    if (type === 'polygon' && Array.isArray(coordinates) && coordinates.length > 0) {
+      return this.isPointInsideRing(lat, lng, coordinates[0]);
+    }
+
+    if (type === 'multipolygon' && Array.isArray(coordinates)) {
+      return coordinates.some((polygon) => Array.isArray(polygon) && polygon.length > 0
+        ? this.isPointInsideRing(lat, lng, polygon[0])
+        : false);
+    }
+
+    return this.isPointInsideBbox(lat, lng, bbox);
+  }
+
+  isNodeInsideManagedArea(nodeId, lat, lng) {
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+      return null;
+    }
+
+    const managedAreas = this.getManagedAreasForNode(nodeId);
+    if (!Array.isArray(managedAreas) || managedAreas.length === 0) {
+      return false;
+    }
+
+    return managedAreas.some((area) => this.isPointInsideGeometry(
+      latNum,
+      lngNum,
+      area?.geometry || null,
+      area?.bbox || null
+    ));
   }
 
   setGatewayStatus(gatewayId, status = DEFAULT_GATEWAY_STATUS) {
