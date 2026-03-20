@@ -24,6 +24,8 @@ const getMetricData = async (query = {}) => {
     sensor_id,
     node_id,
     gateway_id,
+    timestamp_from,
+    timestamp_to,
     limit: limitParam = '200',
     page: pageParam = '1'
   } = query
@@ -33,22 +35,33 @@ const getMetricData = async (query = {}) => {
   const nodeIds = buildParamList(node_id)
   const gatewayIds = buildParamList(gateway_id)
 
-  if (!selectedMetric && sensorIds.length === 0 && nodeIds.length === 0 && gatewayIds.length === 0) {
-    const err = new Error('At least one filter param is required')
-    err.statusCode = 400
-    throw err
-  }
-
   const limit = Math.max(1, Math.min(500, Number(limitParam) || 200))
   const page = Math.max(1, Number(pageParam) || 1)
   const skip = (page - 1) * limit
 
+  const timestampMatch = {}
+  if (timestamp_from) {
+    const fromDate = new Date(String(timestamp_from))
+    if (!Number.isNaN(fromDate.getTime())) {
+      timestampMatch.$gte = fromDate
+    }
+  }
+  if (timestamp_to) {
+    const toDate = new Date(String(timestamp_to))
+    if (!Number.isNaN(toDate.getTime())) {
+      timestampMatch.$lte = toDate
+    }
+  }
+
+  // If no filter params are provided, this match object only keeps event_type != heartbeat,
+  // which means the query returns all sensor_readings with pagination.
   const match = {
     ...(sensorIds.length > 0 && { sensor_id: { $in: sensorIds } }),
     ...(nodeIds.length > 0 && { node_id: { $in: nodeIds } }),
     ...(gatewayIds.length > 0 && { gateway_id: { $in: gatewayIds } }),
+    ...(Object.keys(timestampMatch).length > 0 && { timestamp: timestampMatch }),
     event_type: { $ne: 'heartbeat' },
-    metric: selectedMetric ? selectedMetric : { $exists: true }
+    ...(selectedMetric && { metric: selectedMetric })
   }
 
   const baseProject = {

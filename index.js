@@ -9,6 +9,7 @@ const { createDeviceStatusController } = require('./controllers/deviceStatusCont
 const { createMetricController } = require('./controllers/metricController')
 const { createSensorController } = require('./controllers/sensorController')
 const { createWhitelistController } = require('./controllers/whitelistController')
+const { createControlAckController } = require('./controllers/controlAckController')
 const { connect, close, getDb } = require('./config/db')
 const env = require('./config/env')
 const deviceWhitelistService = require('./services/deviceWhitelistService')
@@ -17,6 +18,7 @@ const { createDeviceStatusService } = require('./services/deviceStatusAppService
 const metricService = require('./services/metricCatalogService')
 const metricDataService = require('./services/metricQueryService')
 const { createWhitelistService } = require('./services/whitelistSyncService')
+const controlAckAnalyticsService = require('./services/controlAckAnalyticsService')
 
 const { app, server } = createHttpServer()
 const sseGatewayService = createSseService(app)
@@ -53,13 +55,15 @@ const deviceStatusController = createDeviceStatusController({ deviceStatusServic
 const metricController = createMetricController({ metricService })
 const sensorController = createSensorController({ metricDataService })
 const whitelistController = createWhitelistController({ whitelistService })
+const controlAckController = createControlAckController({ controlAckAnalyticsService })
 
 registerRoutes(app, {
   controlController,
   deviceStatusController,
   metricController,
   sensorController,
-  whitelistController
+  whitelistController,
+  controlAckController
 })
 
 registerWhitelistRefreshListener()
