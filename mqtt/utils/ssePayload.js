@@ -48,7 +48,7 @@ function buildGatewaySnapshot(handler, gatewayId, buffer) {
         mac: gatewayInfo.mac || null,
         status: normalizeOnlineStatus(gatewayInfo.status),
         registered: handler.isGatewayRegistered(resolvedGatewayId),
-        lastSeen: formatTimestampForSse(gatewayInfo.lastSeen),
+        last_seen: formatTimestampForSse(gatewayInfo.lastSeen),
     };
 
     const nodes = buffer.nodes && typeof buffer.nodes === 'object'

@@ -30,7 +30,7 @@ function emitGatewayUpdate(handler, gatewayInfo, nodes = null) {
         mac: gatewayInfo.mac || null,
         status: handler.normalizeOnlineStatus(gatewayInfo.status),
         registered: handler.isGatewayRegistered(gatewayId),
-        lastSeen: handler.formatTimestampForSse(gatewayInfo.lastSeen),
+        last_seen: handler.formatTimestampForSse(gatewayInfo.lastSeen),
     };
 
     const nodeList = nodes && typeof nodes === 'object'
