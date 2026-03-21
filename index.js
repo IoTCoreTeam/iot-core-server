@@ -19,6 +19,7 @@ const metricService = require('./services/metricCatalogService')
 const metricDataService = require('./services/metricQueryService')
 const { createWhitelistService } = require('./services/whitelistSyncService')
 const controlAckAnalyticsService = require('./services/controlAckAnalyticsService')
+const controlAckQueryService = require('./services/controlAckQueryService')
 
 const { app, server } = createHttpServer()
 const sseGatewayService = createSseService(app)
@@ -55,7 +56,10 @@ const deviceStatusController = createDeviceStatusController({ deviceStatusServic
 const metricController = createMetricController({ metricService })
 const sensorController = createSensorController({ metricDataService })
 const whitelistController = createWhitelistController({ whitelistService })
-const controlAckController = createControlAckController({ controlAckAnalyticsService })
+const controlAckController = createControlAckController({
+  controlAckAnalyticsService,
+  controlAckQueryService
+})
 
 registerRoutes(app, {
   controlController,

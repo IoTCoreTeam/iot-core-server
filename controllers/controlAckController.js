@@ -1,6 +1,9 @@
-function createControlAckController({ controlAckAnalyticsService }) {
+function createControlAckController({ controlAckAnalyticsService, controlAckQueryService }) {
   if (!controlAckAnalyticsService) {
     throw new Error('controlAckAnalyticsService is required')
+  }
+  if (!controlAckQueryService) {
+    throw new Error('controlAckQueryService is required')
   }
 
   async function getOverview(req, res) {
@@ -18,8 +21,20 @@ function createControlAckController({ controlAckAnalyticsService }) {
     }
   }
 
+  async function queryRows(req, res) {
+    try {
+      const rows = await controlAckQueryService.getControlAckRows(req.query || {})
+      res.json(rows)
+    } catch (error) {
+      console.error('[controlAckController] Error querying control ack rows:', error.message)
+      const status = error.statusCode || 500
+      res.status(status).json({ error: error.message || 'Failed to query control ack rows.' })
+    }
+  }
+
   return {
-    getOverview
+    getOverview,
+    queryRows
   }
 }
 
