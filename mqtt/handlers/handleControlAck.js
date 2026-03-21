@@ -25,14 +25,8 @@ async function handleControlAck(payload, topic) {
             `Control ACK: gateway=${gatewayId} node=${nodeId || 'n/a'} device=${data.device || 'n/a'} state=${data.state || 'n/a'} status=${data.status || 'n/a'}`
         );
 
-        if (this.db) {
-            const controlAckCollectionName = this.config?.CONTROL_ACK_COLLECTION_NAME || 'control_acks';
-            await this.db.collection(controlAckCollectionName).insertOne({
-                ...data,
-                topic,
-                received_at: new Date(),
-            });
-        }
+        // Legacy ACK topic is kept only for diagnostics.
+        // Control logs are now persisted from controller status-event only.
     } catch (error) {
         console.error('Control ACK error:', error.message);
     }

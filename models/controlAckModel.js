@@ -1,18 +1,13 @@
 const { getDb } = require('../config/db')
 const { CONTROL_ACK_COLLECTION_NAME } = require('../config/env')
 
+const ACK_V2_TOPIC = 'esp32/controllers/status-event'
+
 const listControlAcks = async ({ since, limit = 20000 } = {}) => {
   const db = getDb()
   const collection = db.collection(CONTROL_ACK_COLLECTION_NAME)
 
-  const query = since
-    ? {
-        $or: [
-          { timestamp: { $gte: since } },
-          { received_at: { $gte: since } }
-        ]
-      }
-    : {}
+  const query = { topic: ACK_V2_TOPIC }
 
   return collection
     .find(query, {
@@ -79,12 +74,13 @@ const queryControlAcks = async (query = {}) => {
   const db = getDb()
   const collection = db.collection(CONTROL_ACK_COLLECTION_NAME)
   const baseQuery = {
+    topic: ACK_V2_TOPIC,
     ...(gatewayIds.length > 0 && { gateway_id: { $in: gatewayIds } }),
     ...(nodeIds.length > 0 && { node_id: { $in: nodeIds } }),
     ...(devices.length > 0 && { device: { $in: devices } }),
     ...(states.length > 0 && { state: { $in: states } }),
     ...(statuses.length > 0 && { status: { $in: statuses } }),
-    ...(topics.length > 0 && { topic: { $in: topics } })
+    ...(topics.length > 0 && { topic: { $in: topics.filter((value) => value === ACK_V2_TOPIC) } })
   }
 
   const hasTimeFilter =
@@ -116,7 +112,12 @@ const queryControlAcks = async (query = {}) => {
         status: 1,
         topic: 1,
         timestamp: 1,
-        received_at: 1
+        received_at: 1,
+        command_exec_ms: 1,
+        command_seq: 1,
+        requested_at: 1,
+        requested_at_ms: 1,
+        response_deadline_at: 1
       }
     })
     .sort({ timestamp: -1, received_at: -1, _id: -1 })

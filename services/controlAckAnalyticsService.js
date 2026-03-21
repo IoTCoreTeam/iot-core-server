@@ -27,6 +27,7 @@ const classifyStatus = (status) => {
     return 'failed'
   }
   if (
+    status.includes('applied') ||
     status.includes('dispatch') ||
     status.includes('success') ||
     status.includes('ack') ||
@@ -104,6 +105,9 @@ const getControlAckOverview = async ({ hours = DAY_IN_HOURS, bucket = 'hour' } =
   rows.forEach((row) => {
     const eventTime = parseDate(row.timestamp) || parseDate(row.received_at)
     if (!eventTime) return
+    if (eventTime < since) return
+    if (eventTime > now) return
+
     const bucketKey = toBucketDate(eventTime, safeBucket).toISOString()
     const current = bucketMap.get(bucketKey)
     if (!current) return

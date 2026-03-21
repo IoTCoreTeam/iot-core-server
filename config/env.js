@@ -24,6 +24,7 @@ const env = {
   JWT_ROLE_CLAIM: process.env.JWT_ROLE_CLAIM || 'roles',
   JWT_SCOPE_CLAIM: process.env.JWT_SCOPE_CLAIM || 'scope',
   JWT_CLOCK_TOLERANCE_SEC: process.env.JWT_CLOCK_TOLERANCE_SEC || '5',
+  SERVICE_TOKEN: process.env.SERVICE_TOKEN || '',
 }
 
 module.exports = env

@@ -38,6 +38,8 @@ class ControlQueueService {
       wait_for_response: waitForResponse,
       response_timeout_ms: responseTimeoutMs,
       requested_at: new Date().toISOString(),
+      requested_at_ms: Number(command.requested_at_ms) || Date.now(),
+      response_deadline_at: command.response_deadline_at || null,
     };
 
     let resolveRequest;
@@ -140,6 +142,8 @@ class ControlQueueService {
       state: command.state,
       value: command.value ?? null,
       requested_at: command.requested_at || new Date().toISOString(),
+      requested_at_ms: command.requested_at_ms || Date.now(),
+      response_deadline_at: command.response_deadline_at || null,
     });
 
     await new Promise((resolve, reject) => {
@@ -181,6 +185,8 @@ class ControlQueueService {
       wait_for_response: job.wait_for_response,
       response_timeout_ms: job.response_timeout_ms,
       requested_at: job.requested_at,
+      requested_at_ms: job.requested_at_ms,
+      response_deadline_at: job.response_deadline_at,
     };
   }
 

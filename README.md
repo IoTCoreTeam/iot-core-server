@@ -47,44 +47,39 @@ The architecture of the IoT Core Server consists of:
    npm run dev
    ```
 
-## JWT Authentication and RBAC
-This server verifies incoming Bearer access tokens using an RSA public key (`RS256`) and authorizes requests by role/scope claims for control commands.
-
-### Public key location
-- Default key path: `server/storage/oauth-public.key`
-- This key file is now ignored by git via `storage/*.key` in `.gitignore`.
+## Service Token Authentication
+This server now authenticates internal calls from backend by a shared `SERVICE_TOKEN` (service-to-service auth).  
+Role-based checks on control routes are removed at server layer; authorization is delegated to backend central auth.
 
 ### Environment variables
 Configure these values in `server/.env`:
 
 ```env
-JWT_PUBLIC_KEY_PATH=storage/oauth-public.key
-JWT_ISSUER=
-JWT_AUDIENCE=
-JWT_ALGORITHMS=RS256
-JWT_ROLE_CLAIM=roles
-JWT_SCOPE_CLAIM=scope
-JWT_CLOCK_TOLERANCE_SEC=5
+SERVICE_TOKEN=replace-with-strong-shared-token
 ```
 
-Notes:
-- Set `JWT_ISSUER` and `JWT_AUDIENCE` to match your auth provider.
-- `JWT_ROLE_CLAIM` and `JWT_SCOPE_CLAIM` can be changed to match your token payload format.
+Backend must use the same value via `NODE_SERVER_SERVICE_TOKEN`.
 
 ### Verification flow
-1. Client sends `Authorization: Bearer <access_token>`.
-2. Server verifies JWT signature with `JWT_PUBLIC_KEY_PATH`.
-3. Server validates claims (`exp`, `nbf`, algorithm, and optional `iss`/`aud`).
-4. Decoded payload is attached to `req.auth` and `req.user`.
-5. Authorization middleware checks roles/scopes and grants or denies access.
+1. Backend sends one of:
+   - `Authorization: Bearer <SERVICE_TOKEN>`, or
+   - `X-Service-Token: <SERVICE_TOKEN>`
+2. Server middleware compares token using timing-safe equality.
+3. If matched, request is accepted; otherwise rejected.
 
 ### HTTP status behavior
-- `401 Unauthorized`: missing/invalid Bearer token, bad signature, expired token.
-- `403 Forbidden`: token is valid but does not have required role/scope.
+- `401 Unauthorized`: missing or incorrect service token.
+- `500 Internal Server Error`: `SERVICE_TOKEN` not configured on server.
 
-### Current route policy
-- Control command routes require one of: `admin`, `engineer`
-  - `POST /v1/control/enqueue`
-  - `POST /v1/control/pump`
-  - `POST /v1/control/light`
-- Other routes currently do not enforce JWT/role checks at server route layer.
+### Protected routes
+The following route groups require service token:
+- `POST /v1/control/enqueue`
+- `POST /v1/control/pump`
+- `POST /v1/control/light`
+- `GET /v1/device-status`
+- `POST /v1/device-status/ensure-off`
+- `GET /v1/whitelist`
+- `POST /v1/whitelist`
+
+### Note about JWT settings
+Legacy JWT environment variables may still exist in `.env`, but the current backend-to-server control flow uses `SERVICE_TOKEN`.

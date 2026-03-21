@@ -114,6 +114,7 @@ class ControlResponseWaiterService {
         command_device: device,
         command_state: state,
         command_result: event.command_result ?? null,
+        command_exec_ms: event.command_exec_ms ?? null,
         controller_states: Array.isArray(event.controller_states) ? event.controller_states : [],
         status_kv: event.status_kv ?? null,
         gateway_timestamp: event.gateway_timestamp ?? null,

@@ -23,7 +23,15 @@ async function handleControllerStatusEvent(payload, topic) {
     const eventData = {
       ...data,
       topic,
-      received_at: new Date()
+      received_at: new Date(),
+      // Normalize to control log schema (ACK v2 from status-event).
+      device: data.command_device ?? null,
+      state: data.command_state ?? null,
+      status: data.command_result ?? 'unknown',
+      timestamp: data.gateway_timestamp ?? null,
+      command_exec_ms: Number.isFinite(Number(data.command_exec_ms))
+        ? Number(data.command_exec_ms)
+        : null
     }
 
     if (this.db) {
