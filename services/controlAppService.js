@@ -3,11 +3,11 @@ function createControlService({ controlCommandService }) {
     throw new Error('controlCommandService is required')
   }
 
-  const enqueueCommand = (payload = {}) => {
+  const enqueueCommand = async (payload = {}) => {
     return controlCommandService.enqueue(payload)
   }
 
-  const commandDevice = (body = {}, device) => {
+  const commandDevice = async (body = {}, device) => {
     return controlCommandService.enqueue({
       gateway_id: body.gateway_id,
       node_id: body.node_id,
@@ -15,7 +15,9 @@ function createControlService({ controlCommandService }) {
       device,
       state: body.state,
       value: body.value,
-      delayMs: body.delayMs
+      delayMs: body.delayMs,
+      wait_for_response: body.wait_for_response,
+      response_timeout_ms: body.response_timeout_ms
     })
   }
 

@@ -13,7 +13,7 @@ function createDeviceStatusController({ deviceStatusService }) {
 
   async function ensureAllDigitalOff(_req, res) {
     try {
-      const summary = deviceStatusService.ensureAllDigitalOff()
+      const summary = await deviceStatusService.ensureAllDigitalOff()
       return res.json({
         success: summary.errors.length === 0,
         data: summary

@@ -3,6 +3,7 @@ const handleHeartbeat = require('./handlers/handleHeartbeat'); // handler: gatew
 const handleNodeHeartbeat = require('./handlers/handleNodeHeartbeat'); // handler: node/controller heartbeat
 const handleServoAck = require('./handlers/handleServoAck'); // handler: servo ack
 const handleControlAck = require('./handlers/handleControlAck'); // handler: control/actuator ack
+const handleControllerStatusEvent = require('./handlers/handleControllerStatusEvent'); // handler: control status event
 const timeUtils = require('./utils/time'); // utils: time normalization/format
 const statusUtils = require('./utils/status'); // utils: status + node type
 const whitelistUtils = require('./utils/whitelist'); // utils: whitelist checks
@@ -19,6 +20,7 @@ class MQTTHandlers {
         this.aedes = dependencies.aedes; // mqtt broker instance
         this.config = dependencies.config; // runtime config
         this.sseService = dependencies.sseService; // SSE push service
+        this.controlResponseWaiter = dependencies.controlResponseWaiter || null; // waiter for control result
 
         this.nodeBuffer = new Map(); // gateway -> nodes buffer
         this.BUFFER_TIMEOUT = 10000; // buffer expiry (ms)
@@ -66,6 +68,8 @@ class MQTTHandlers {
             await this.handleServoAck(payload, client); // delegate to handler
         } else if (topic === 'esp32/control/ack' || topic === 'esp32/actuator/ack') { // control ack topic
             await this.handleControlAck(payload, topic); // delegate to handler
+        } else if (topic === 'esp32/controllers/status-event') { // controller status event topic
+            await this.handleControllerStatusEvent(payload, topic); // delegate to handler
         }
     }
 
@@ -147,6 +151,10 @@ class MQTTHandlers {
 
     async handleControlAck(payload, topic) {
         return handleControlAck.call(this, payload, topic); // delegate control ack handler
+    }
+
+    async handleControllerStatusEvent(payload, topic) {
+        return handleControllerStatusEvent.call(this, payload, topic); // delegate controller status event handler
     }
 
     onClientError(client, error) {

@@ -53,7 +53,7 @@ function createDeviceStatusService({ mqttHandlers, controlCommandService }) {
 
   const getStatus = () => mqttHandlers.getGatewaySnapshotList()
 
-  const ensureAllDigitalOff = () => {
+  const ensureAllDigitalOff = async () => {
     if (!controlCommandService) {
       const error = new Error('controlCommandService is not configured')
       error.statusCode = 500
@@ -68,6 +68,8 @@ function createDeviceStatusService({ mqttHandlers, controlCommandService }) {
       unknownState: 0,
       errors: []
     }
+
+    const tasks = []
 
     for (const gateway of gateways) {
       const gatewayId = gateway?.id ?? gateway?.gateway_id ?? null
@@ -100,13 +102,25 @@ function createDeviceStatusService({ mqttHandlers, controlCommandService }) {
             continue
           }
           try {
-            controlCommandService.enqueue({
+            const task = controlCommandService.enqueue({
               gateway_id: String(gatewayId),
               node_id: nodeId ? String(nodeId) : null,
               device: deviceName,
-              state: 'off'
+              state: 'off',
+              wait_for_response: false
             })
-            summary.forcedOff += 1
+            .then(() => {
+              summary.forcedOff += 1
+            })
+            .catch((error) => {
+              summary.errors.push({
+                gateway_id: gatewayId,
+                node_id: nodeId,
+                device: deviceName,
+                message: error?.message || 'Failed to enqueue off command'
+              })
+            })
+            tasks.push(task)
           } catch (error) {
             summary.errors.push({
               gateway_id: gatewayId,
@@ -118,6 +132,8 @@ function createDeviceStatusService({ mqttHandlers, controlCommandService }) {
         }
       }
     }
+
+    await Promise.all(tasks)
 
     return summary
   }

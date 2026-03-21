@@ -5,10 +5,10 @@ function createControlController({ controlService }) {
 
   async function enqueueCommand(req, res) {
     try {
-      const result = controlService.enqueueCommand(req.body || {})
+      const result = await controlService.enqueueCommand(req.body || {})
       return res.json({
         success: true,
-        message: 'Command queued',
+        message: 'Command completed',
         data: result
       })
     } catch (error) {
@@ -31,10 +31,10 @@ function createControlController({ controlService }) {
 
   async function commandDevice(req, res, device) {
     try {
-      const result = controlService.commandDevice(req.body || {}, device)
+      const result = await controlService.commandDevice(req.body || {}, device)
       return res.json({
         success: true,
-        message: `${device} command queued`,
+        message: `${device} command completed`,
         data: result
       })
     } catch (error) {

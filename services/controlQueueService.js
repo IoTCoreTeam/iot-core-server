@@ -1,8 +1,9 @@
 class ControlQueueService {
-  constructor({ aedes, deviceWhitelist, config = {} }) {
+  constructor({ aedes, deviceWhitelist, config = {}, controlResponseWaiter = null }) {
     this.aedes = aedes;
     this.deviceWhitelist = deviceWhitelist;
     this.config = config;
+    this.controlResponseWaiter = controlResponseWaiter;
     this.queue = [];
     this.processing = false;
   }
@@ -18,6 +19,14 @@ class ControlQueueService {
     this.validate(command);
     this.validateWhitelist(command);
 
+    const waitForResponse = command.wait_for_response !== false;
+    const responseTimeoutMs = Number(command.response_timeout_ms || this.config.CONTROL_RESPONSE_TIMEOUT_MS || 15000);
+    if (waitForResponse && (!Number.isFinite(responseTimeoutMs) || responseTimeoutMs <= 0)) {
+      const error = new Error('response_timeout_ms must be a number > 0');
+      error.statusCode = 400;
+      throw error;
+    }
+
     const job = {
       gateway_id: command.gateway_id,
       node_id: command.node_id || null,
@@ -26,19 +35,27 @@ class ControlQueueService {
       state: command.state ?? null,
       value: command.value ?? null,
       delayMs,
+      wait_for_response: waitForResponse,
+      response_timeout_ms: responseTimeoutMs,
       requested_at: new Date().toISOString(),
     };
+
+    let resolveRequest;
+    let rejectRequest;
+    const completion = new Promise((resolve, reject) => {
+      resolveRequest = resolve;
+      rejectRequest = reject;
+    });
+
+    job.resolveRequest = resolveRequest;
+    job.rejectRequest = rejectRequest;
 
     this.queue.push(job);
     this.processQueue().catch((error) => {
       console.error('[controlQueueService] Queue error:', error.message);
     });
 
-    return {
-      queued: this.queue.length,
-      processing: this.processing,
-      job,
-    };
+    return completion;
   }
 
   size() {
@@ -58,10 +75,41 @@ class ControlQueueService {
     try {
       while (this.queue.length > 0) {
         const job = this.queue.shift();
-        if (job.delayMs > 0) {
-          await this.sleep(job.delayMs);
+        let waiter = null;
+
+        try {
+          if (job.delayMs > 0) {
+            await this.sleep(job.delayMs);
+          }
+
+          if (job.wait_for_response) {
+            if (!this.controlResponseWaiter) {
+              const error = new Error('Control response waiter is not configured');
+              error.statusCode = 503;
+              throw error;
+            }
+
+            waiter = this.controlResponseWaiter.register(job, {
+              timeoutMs: job.response_timeout_ms
+            });
+          }
+
+          const dispatch = await this.publishNow(job);
+          const controlResponse = waiter ? await waiter.promise : null;
+
+          job.resolveRequest({
+            queued: this.queue.length,
+            processing: this.processing,
+            job: this.publicJob(job),
+            dispatch,
+            control_response: controlResponse
+          });
+        } catch (error) {
+          if (waiter) {
+            waiter.cancel(error);
+          }
+          job.rejectRequest(error);
         }
-        await this.publishNow(job);
       }
     } finally {
       this.processing = false;
@@ -117,6 +165,22 @@ class ControlQueueService {
     return {
       topic,
       payload: JSON.parse(payload),
+      dispatched_at: new Date().toISOString(),
+    };
+  }
+
+  publicJob(job) {
+    return {
+      gateway_id: job.gateway_id,
+      node_id: job.node_id,
+      action_type: job.action_type,
+      device: job.device,
+      state: job.state,
+      value: job.value,
+      delayMs: job.delayMs,
+      wait_for_response: job.wait_for_response,
+      response_timeout_ms: job.response_timeout_ms,
+      requested_at: job.requested_at,
     };
   }
 

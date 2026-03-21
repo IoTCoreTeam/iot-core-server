@@ -3,6 +3,7 @@ const aedes = require('aedes')()
 
 const MQTTHandlers = require('../mqtt/mqttHandle')
 const ControlQueueService = require('../services/controlQueueService')
+const ControlResponseWaiterService = require('../services/controlResponseWaiterService')
 
 class RateLimiter {
   constructor(maxRequests = 10, windowMs = 1000) {
@@ -33,6 +34,10 @@ const createMqttStack = ({ env, deviceWhitelistService, getDb, sseGatewayService
     return rateLimiters.get(clientId)
   }
 
+  const controlResponseWaiter = new ControlResponseWaiterService({
+    defaultTimeoutMs: Number(env.CONTROL_RESPONSE_TIMEOUT_MS || 15000)
+  })
+
   const mqttHandlers = new MQTTHandlers({
     deviceWhitelist: deviceWhitelistService,
     rateLimiters,
@@ -40,7 +45,8 @@ const createMqttStack = ({ env, deviceWhitelistService, getDb, sseGatewayService
     db: getDb,
     aedes,
     config: env,
-    sseService: sseGatewayService
+    sseService: sseGatewayService,
+    controlResponseWaiter
   })
 
   aedes.on('client', (client) => mqttHandlers.onClientConnected(client))
@@ -54,6 +60,7 @@ const createMqttStack = ({ env, deviceWhitelistService, getDb, sseGatewayService
     aedes,
     deviceWhitelist: deviceWhitelistService,
     config: env,
+    controlResponseWaiter
   })
 
   const mqttServer = net.createServer(aedes.handle)
