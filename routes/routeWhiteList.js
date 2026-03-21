@@ -1,10 +1,13 @@
 const express = require('express')
 
-function createWhitelistRoute(controller) {
+function createWhitelistRoute(controller, { authorizeRead, authorizeWrite } = {}) {
   const router = express.Router()
 
-  router.get('/', controller.getWhitelist)
-  router.post('/', controller.overrideWhitelist)
+  const allowRead = authorizeRead || ((_req, _res, next) => next())
+  const allowWrite = authorizeWrite || ((_req, _res, next) => next())
+
+  router.get('/', allowRead, controller.getWhitelist)
+  router.post('/', allowWrite, controller.overrideWhitelist)
 
   return router
 }

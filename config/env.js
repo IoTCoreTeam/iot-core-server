@@ -16,6 +16,13 @@ const env = {
   CONTROL_COMMAND_TOPIC_PREFIX: process.env.CONTROL_COMMAND_TOPIC_PREFIX || 'esp32/commands',
   HEARTBEAT_TIMEOUT_MS: process.env.HEARTBEAT_TIMEOUT_MS || '45000',
   HEARTBEAT_CHECK_INTERVAL_MS: process.env.HEARTBEAT_CHECK_INTERVAL_MS || '5000',
+  JWT_PUBLIC_KEY_PATH: process.env.JWT_PUBLIC_KEY_PATH || 'storage/oauth-public.key',
+  JWT_ISSUER: process.env.JWT_ISSUER || '',
+  JWT_AUDIENCE: process.env.JWT_AUDIENCE || '',
+  JWT_ALGORITHMS: process.env.JWT_ALGORITHMS || 'RS256',
+  JWT_ROLE_CLAIM: process.env.JWT_ROLE_CLAIM || 'roles',
+  JWT_SCOPE_CLAIM: process.env.JWT_SCOPE_CLAIM || 'scope',
+  JWT_CLOCK_TOLERANCE_SEC: process.env.JWT_CLOCK_TOLERANCE_SEC || '5',
 }
 
 module.exports = env

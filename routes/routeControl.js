@@ -1,14 +1,15 @@
 const express = require('express')
 
-function createControlRoute(controller) {
+function createControlRoute(controller, { authenticate, authorizeWrite } = {}) {
   const router = express.Router()
 
-  router.get('/health', controller.health)
-  router.post('/enqueue', controller.enqueueCommand)
+  const requireAuth = authenticate || ((_req, _res, next) => next())
+  const allowWrite = authorizeWrite || ((_req, _res, next) => next())
 
-  // có thể thêm các route khác cho từng thiết bị nếu cần, ví dụ:
-  router.post('/pump', controller.commandPump)
-  router.post('/light', controller.commandLight)
+  router.get('/health', controller.health)
+  router.post('/enqueue', requireAuth, allowWrite, controller.enqueueCommand)
+  router.post('/pump', requireAuth, allowWrite, controller.commandPump)
+  router.post('/light', requireAuth, allowWrite, controller.commandLight)
 
   return router
 }

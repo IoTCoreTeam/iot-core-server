@@ -1,10 +1,13 @@
 const express = require('express')
 
-function createDeviceStatusRoute(controller) {
+function createDeviceStatusRoute(controller, { authorizeRead, authorizeWrite } = {}) {
   const router = express.Router()
 
-  router.get('/', controller.getStatus)
-  router.post('/ensure-off', controller.ensureAllDigitalOff)
+  const allowRead = authorizeRead || ((_req, _res, next) => next())
+  const allowWrite = authorizeWrite || ((_req, _res, next) => next())
+
+  router.get('/', allowRead, controller.getStatus)
+  router.post('/ensure-off', allowWrite, controller.ensureAllDigitalOff)
 
   return router
 }
