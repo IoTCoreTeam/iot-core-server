@@ -45,10 +45,18 @@ class ControlResponseWaiterService {
       }
     }
 
+    const metadata = {
+      requested_at: command?.requested_at ?? null,
+      requested_at_ms: Number.isFinite(Number(command?.requested_at_ms))
+        ? Number(command.requested_at_ms)
+        : null,
+      response_deadline_at: command?.response_deadline_at ?? null,
+    }
+
     const promise = new Promise((resolve, reject) => {
       resolveFn = resolve
       rejectFn = reject
-      queue.push({ resolve, reject })
+      queue.push({ resolve, reject, metadata })
     })
 
     timeoutHandle = setTimeout(() => {
@@ -98,7 +106,7 @@ class ControlResponseWaiterService {
 
     const queue = this.pending.get(key)
     if (!queue || queue.length === 0) {
-      return false
+      return null
     }
 
     const next = queue.shift()
@@ -107,6 +115,7 @@ class ControlResponseWaiterService {
     }
 
     if (next && typeof next.resolve === 'function') {
+      const correlation = next.metadata || {}
       next.resolve({
         gateway_id: gatewayId,
         node_id: nodeId,
@@ -115,16 +124,22 @@ class ControlResponseWaiterService {
         command_state: state,
         command_result: event.command_result ?? null,
         command_exec_ms: event.command_exec_ms ?? null,
+        requested_at: correlation.requested_at ?? null,
+        requested_at_ms: correlation.requested_at_ms ?? null,
+        response_deadline_at: correlation.response_deadline_at ?? null,
         controller_states: Array.isArray(event.controller_states) ? event.controller_states : [],
         status_kv: event.status_kv ?? null,
         gateway_timestamp: event.gateway_timestamp ?? null,
         sensor_timestamp: event.sensor_timestamp ?? null,
         topic: event.topic ?? null
       })
-      return true
+      return {
+        matched: true,
+        correlation
+      }
     }
 
-    return false
+    return null
   }
 }
 

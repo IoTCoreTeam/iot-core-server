@@ -34,18 +34,26 @@ async function handleControllerStatusEvent(payload, topic) {
         : null
     }
 
-    if (this.db) {
-      const controlAckCollectionName = this.config?.CONTROL_ACK_COLLECTION_NAME || 'control_acks'
-      await this.db.collection(controlAckCollectionName).insertOne(eventData)
-    }
-
+    let resolution = null
     if (this.controlResponseWaiter) {
-      const resolved = this.controlResponseWaiter.resolveFromStatusEvent(eventData)
-      if (!resolved) {
+      resolution = this.controlResponseWaiter.resolveFromStatusEvent(eventData)
+      if (!resolution?.matched) {
         console.log(
           `Controller status event has no pending waiter: gateway=${gatewayId} node=${nodeId} device=${data.command_device || 'n/a'} state=${data.command_state || 'n/a'}`
         )
       }
+    }
+
+    if (resolution?.matched) {
+      const correlation = resolution.correlation || {}
+      eventData.requested_at = correlation.requested_at ?? null
+      eventData.requested_at_ms = correlation.requested_at_ms ?? null
+      eventData.response_deadline_at = correlation.response_deadline_at ?? null
+    }
+
+    if (this.db) {
+      const controlAckCollectionName = this.config?.CONTROL_ACK_COLLECTION_NAME || 'control_acks'
+      await this.db.collection(controlAckCollectionName).insertOne(eventData)
     }
   } catch (error) {
     console.error('Controller status event error:', error.message)
