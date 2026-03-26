@@ -1,19 +1,43 @@
-function createWorkflowEventController({ controlQueueSseService }) {
+function createWorkflowEventController({ controlQueueSseService, controlQueueService }) {
   if (!controlQueueSseService) {
     throw new Error('controlQueueSseService is required')
   }
+  if (!controlQueueService) {
+    throw new Error('controlQueueService is required')
+  }
+
+  const terminalWorkflowStatuses = new Set(['workflow_failed', 'workflow_stopped'])
 
   function pushStatus(req, res) {
     try {
       const payload = req.body || {}
+      const status = payload.status || null
+      const runId = payload.run_id ?? null
+      const workflowId = payload.workflow_id ?? null
+      const errorMessage = payload.error ?? null
+
+      if (terminalWorkflowStatuses.has(String(status))) {
+        const reason =
+          errorMessage ||
+          (status === 'workflow_stopped'
+            ? 'Workflow stopped by backend'
+            : 'Workflow failed by backend')
+
+        controlQueueService.cancelWorkflow({
+          runId,
+          workflowId,
+          reason
+        })
+      }
+
       controlQueueSseService.sendWorkflowStatus({
         type: 'workflow_status',
-        status: payload.status || null,
-        run_id: payload.run_id ?? null,
-        workflow_id: payload.workflow_id ?? null,
+        status,
+        run_id: runId,
+        workflow_id: workflowId,
         ts: payload.ts || new Date().toISOString(),
         source: payload.source || 'backend',
-        error: payload.error ?? null,
+        error: errorMessage,
         meta: payload.meta ?? null,
       })
 

@@ -63,7 +63,8 @@ const controlAckController = createControlAckController({
   controlAckQueryService
 })
 const workflowEventController = createWorkflowEventController({
-  controlQueueSseService
+  controlQueueSseService,
+  controlQueueService
 })
 
 registerRoutes(app, {

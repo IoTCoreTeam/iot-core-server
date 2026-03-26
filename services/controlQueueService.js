@@ -8,6 +8,11 @@ class ControlQueueService {
     this.queue = [];
     this.processing = false;
     this.commandSeq = 0;
+    this.currentJob = null;
+    this.currentWaiter = null;
+    this.blockedRuns = new Map();
+    this.blockedWorkflows = new Map();
+    this.blockTtlMs = Number(this.config.WORKFLOW_CANCEL_BLOCK_TTL_MS || 60000);
   }
 
   nextCommandSeq() {
@@ -19,6 +24,9 @@ class ControlQueueService {
   }
 
   enqueue(command) {
+    this.cleanupBlockedKeys();
+    this.assertWorkflowNotBlocked(command);
+
     const delayMs = Number(command.delayMs || 0);
     if (Number.isNaN(delayMs) || delayMs < 0) {
       const error = new Error('delayMs must be a number >= 0');
@@ -105,6 +113,8 @@ class ControlQueueService {
       while (this.queue.length > 0) {
         const job = this.queue.shift();
         let waiter = null;
+        this.currentJob = job;
+        this.currentWaiter = null;
 
         try {
           if (job.delayMs > 0) {
@@ -131,6 +141,7 @@ class ControlQueueService {
             waiter = this.controlResponseWaiter.register(job, {
               timeoutMs: job.response_timeout_ms
             });
+            this.currentWaiter = waiter;
           }
 
           const dispatch = await this.publishNow(job);
@@ -170,6 +181,9 @@ class ControlQueueService {
             error: error?.message || 'Queue job failed'
           });
           job.rejectRequest(error);
+        } finally {
+          this.currentWaiter = null;
+          this.currentJob = null;
         }
       }
     } finally {
@@ -311,7 +325,112 @@ class ControlQueueService {
     }
   }
 
+  cancelWorkflow({ runId = null, workflowId = null, reason = 'Workflow canceled by backend' } = {}) {
+    const runIdText = runId !== null && runId !== undefined ? String(runId) : null
+    const workflowIdText =
+      workflowId !== null && workflowId !== undefined ? String(workflowId) : null
+
+    const matches = (job) => {
+      if (!job) {
+        return false
+      }
+      const jobRunId = job.run_id !== null && job.run_id !== undefined ? String(job.run_id) : null
+      const jobWorkflowId =
+        job.workflow_id !== null && job.workflow_id !== undefined
+          ? String(job.workflow_id)
+          : null
+
+      if (runIdText && jobRunId && jobRunId === runIdText) {
+        return true
+      }
+      if (workflowIdText && jobWorkflowId && jobWorkflowId === workflowIdText) {
+        return true
+      }
+      return false
+    }
+
+    const canceledQueued = []
+    const kept = []
+    for (const job of this.queue) {
+      if (matches(job)) {
+        canceledQueued.push(job)
+      } else {
+        kept.push(job)
+      }
+    }
+    this.queue = kept
+
+    for (const job of canceledQueued) {
+      const error = new Error(reason)
+      error.statusCode = 409
+      this.emitStatus('canceled', {
+        job: this.publicJob(job),
+        queued: this.queue.length,
+        run_id: job.run_id ?? null,
+        workflow_id: job.workflow_id ?? null,
+        error: reason
+      })
+      job.rejectRequest(error)
+    }
+
+    if (this.currentJob && matches(this.currentJob) && this.currentWaiter) {
+      this.currentWaiter.cancel(new Error(reason))
+    }
+
+    this.blockWorkflow({ runId: runIdText, workflowId: workflowIdText })
+
+    return {
+      canceledQueued: canceledQueued.length,
+      canceledActive: Boolean(this.currentJob && matches(this.currentJob))
+    }
+  }
+
+  blockWorkflow({ runId = null, workflowId = null } = {}) {
+    const expiresAt = Date.now() + Math.max(1000, this.blockTtlMs)
+    if (runId) {
+      this.blockedRuns.set(String(runId), expiresAt)
+    }
+    if (workflowId) {
+      this.blockedWorkflows.set(String(workflowId), expiresAt)
+    }
+  }
+
+  cleanupBlockedKeys() {
+    const now = Date.now()
+    for (const [key, expiresAt] of this.blockedRuns.entries()) {
+      if (expiresAt <= now) {
+        this.blockedRuns.delete(key)
+      }
+    }
+    for (const [key, expiresAt] of this.blockedWorkflows.entries()) {
+      if (expiresAt <= now) {
+        this.blockedWorkflows.delete(key)
+      }
+    }
+  }
+
+  assertWorkflowNotBlocked(command = {}) {
+    const runId =
+      command.run_id !== null && command.run_id !== undefined
+        ? String(command.run_id)
+        : null
+    const workflowId =
+      command.workflow_id !== null && command.workflow_id !== undefined
+        ? String(command.workflow_id)
+        : null
+
+    if (runId && this.blockedRuns.has(runId)) {
+      const error = new Error(`workflow run canceled: ${runId}`)
+      error.statusCode = 409
+      throw error
+    }
+    if (workflowId && this.blockedWorkflows.has(workflowId)) {
+      const error = new Error(`workflow canceled: ${workflowId}`)
+      error.statusCode = 409
+      throw error
+    }
+  }
+
 }
 
 module.exports = ControlQueueService;
-
