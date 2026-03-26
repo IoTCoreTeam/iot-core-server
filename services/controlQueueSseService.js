@@ -31,10 +31,21 @@ class ControlQueueSseService {
       return
     }
 
+    this.broadcast('control-queue-status', payload)
+  }
+
+  sendWorkflowStatus(payload) {
+    if (!this.clients.size) {
+      return
+    }
+
+    this.broadcast('workflow-status', payload)
+  }
+
+  broadcast(eventName, payload) {
     const id = ++this.eventId
     const body = JSON.stringify(payload)
-    const chunk = `id: ${id}\nevent: control-queue-status\ndata: ${body}\n\n`
-
+    const chunk = `id: ${id}\nevent: ${eventName}\ndata: ${body}\n\n`
     this.clients.forEach((client) => {
       client.write(chunk)
     })
@@ -42,4 +53,3 @@ class ControlQueueSseService {
 }
 
 module.exports = ControlQueueSseService
-

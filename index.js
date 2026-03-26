@@ -10,6 +10,7 @@ const { createMetricController } = require('./controllers/metricController')
 const { createSensorController } = require('./controllers/sensorController')
 const { createWhitelistController } = require('./controllers/whitelistController')
 const { createControlAckController } = require('./controllers/controlAckController')
+const { createWorkflowEventController } = require('./controllers/workflowEventController')
 const { connect, close, getDb } = require('./config/db')
 const env = require('./config/env')
 const deviceWhitelistService = require('./services/deviceWhitelistService')
@@ -61,6 +62,9 @@ const controlAckController = createControlAckController({
   controlAckAnalyticsService,
   controlAckQueryService
 })
+const workflowEventController = createWorkflowEventController({
+  controlQueueSseService
+})
 
 registerRoutes(app, {
   controlController,
@@ -68,7 +72,8 @@ registerRoutes(app, {
   metricController,
   sensorController,
   whitelistController,
-  controlAckController
+  controlAckController,
+  workflowEventController
 })
 
 registerWhitelistRefreshListener()

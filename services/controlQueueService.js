@@ -52,6 +52,8 @@ class ControlQueueService {
       device: command.device ?? null,
       state: command.state ?? null,
       value: command.value ?? null,
+      workflow_id: command.workflow_id ?? null,
+      run_id: command.run_id ?? null,
       delayMs,
       wait_for_response: waitForResponse,
       response_timeout_ms: responseTimeoutMs,
@@ -239,6 +241,8 @@ class ControlQueueService {
       device: job.device,
       state: job.state,
       value: job.value,
+      workflow_id: job.workflow_id,
+      run_id: job.run_id,
       delayMs: job.delayMs,
       wait_for_response: job.wait_for_response,
       response_timeout_ms: job.response_timeout_ms,
@@ -291,11 +295,15 @@ class ControlQueueService {
     if (!this.onStatus) {
       return;
     }
+    const runId = payload?.run_id ?? payload?.job?.run_id ?? null
+    const workflowId = payload?.workflow_id ?? payload?.job?.workflow_id ?? null
     try {
       this.onStatus({
         type: 'control_queue_status',
         status,
         ts: new Date().toISOString(),
+        run_id: runId,
+        workflow_id: workflowId,
         ...payload
       });
     } catch (error) {

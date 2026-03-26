@@ -4,6 +4,7 @@ const { createWhitelistRoute } = require('../routes/routeWhiteList')
 const { createControlRoute } = require('../routes/routeControl')
 const { createDeviceStatusRoute } = require('../routes/routeDeviceStatus')
 const { createControlAckRoute } = require('../routes/routeControlAck')
+const { createWorkflowEventRoute } = require('../routes/routeWorkflowEvent')
 const env = require('../config/env')
 const { createAuthenticateServiceToken } = require('../middlewares/authenticateServiceToken')
 
@@ -14,7 +15,8 @@ const registerRoutes = (app, controllers) => {
     metricController,
     sensorController,
     whitelistController,
-    controlAckController
+    controlAckController,
+    workflowEventController
   } = controllers
 
   const authenticateServiceToken = createAuthenticateServiceToken(env)
@@ -30,6 +32,10 @@ const registerRoutes = (app, controllers) => {
     authorizeWrite: authenticateServiceToken
   })
   const routeControlAck = createControlAckRoute(controlAckController)
+  const routeWorkflowEvent = createWorkflowEventRoute(workflowEventController, {
+    authenticate: authenticateServiceToken,
+    authorizeWrite: authenticateServiceToken
+  })
   const whitelistRoute = createWhitelistRoute(whitelistController, {
     authorizeRead: authenticateServiceToken,
     authorizeWrite: authenticateServiceToken
@@ -41,6 +47,7 @@ const registerRoutes = (app, controllers) => {
   app.use('/v1/control', routeControl)
   app.use('/v1/device-status', routeDeviceStatus)
   app.use('/v1/control-acks', routeControlAck)
+  app.use('/v1/workflow-events', routeWorkflowEvent)
 }
 
 module.exports = {
