@@ -24,7 +24,7 @@ class RateLimiter {
   }
 }
 
-const createMqttStack = ({ env, deviceWhitelistService, getDb, sseGatewayService }) => {
+const createMqttStack = ({ env, deviceWhitelistService, getDb, sseGatewayService, controlQueueSseService }) => {
   const rateLimiters = new Map()
 
   const getRateLimiter = (clientId) => {
@@ -60,7 +60,12 @@ const createMqttStack = ({ env, deviceWhitelistService, getDb, sseGatewayService
     aedes,
     deviceWhitelist: deviceWhitelistService,
     config: env,
-    controlResponseWaiter
+    controlResponseWaiter,
+    onStatus: (payload) => {
+      if (controlQueueSseService && typeof controlQueueSseService.sendStatus === 'function') {
+        controlQueueSseService.sendStatus(payload)
+      }
+    }
   })
 
   const mqttServer = net.createServer(aedes.handle)

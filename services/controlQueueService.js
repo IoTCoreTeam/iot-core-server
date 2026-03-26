@@ -1,11 +1,21 @@
 class ControlQueueService {
-  constructor({ aedes, deviceWhitelist, config = {}, controlResponseWaiter = null }) {
+  constructor({ aedes, deviceWhitelist, config = {}, controlResponseWaiter = null, onStatus = null }) {
     this.aedes = aedes;
     this.deviceWhitelist = deviceWhitelist;
     this.config = config;
     this.controlResponseWaiter = controlResponseWaiter;
+    this.onStatus = typeof onStatus === 'function' ? onStatus : null;
     this.queue = [];
     this.processing = false;
+    this.commandSeq = 0;
+  }
+
+  nextCommandSeq() {
+    if (this.commandSeq >= 2147483647) {
+      this.commandSeq = 0;
+    }
+    this.commandSeq += 1;
+    return this.commandSeq;
   }
 
   enqueue(command) {
@@ -26,6 +36,14 @@ class ControlQueueService {
       error.statusCode = 400;
       throw error;
     }
+    const requestedAtMs = Number(command.requested_at_ms) || Date.now();
+    const requestedAt = command.requested_at || new Date(requestedAtMs).toISOString();
+    const responseDeadlineAt =
+      command.response_deadline_at ||
+      new Date(requestedAtMs + responseTimeoutMs).toISOString();
+    const commandSeq = Number.isFinite(Number(command.command_seq)) && Number(command.command_seq) > 0
+      ? Number(command.command_seq)
+      : this.nextCommandSeq();
 
     const job = {
       gateway_id: command.gateway_id,
@@ -37,9 +55,11 @@ class ControlQueueService {
       delayMs,
       wait_for_response: waitForResponse,
       response_timeout_ms: responseTimeoutMs,
-      requested_at: new Date().toISOString(),
-      requested_at_ms: Number(command.requested_at_ms) || Date.now(),
-      response_deadline_at: command.response_deadline_at || null,
+      requested_at: requestedAt,
+      requested_at_ms: requestedAtMs,
+      response_deadline_at: responseDeadlineAt,
+      dispatched_at: null,
+      command_seq: commandSeq,
     };
 
     let resolveRequest;
@@ -53,6 +73,11 @@ class ControlQueueService {
     job.rejectRequest = rejectRequest;
 
     this.queue.push(job);
+    this.emitStatus('queued', {
+      job: this.publicJob(job),
+      queued: this.queue.length,
+      processing: this.processing
+    });
     this.processQueue().catch((error) => {
       console.error('[controlQueueService] Queue error:', error.message);
     });
@@ -81,7 +106,17 @@ class ControlQueueService {
 
         try {
           if (job.delayMs > 0) {
+            this.emitStatus('delay_wait_started', {
+              job: this.publicJob(job),
+              delayMs: job.delayMs,
+              queued: this.queue.length
+            });
             await this.sleep(job.delayMs);
+            this.emitStatus('delay_wait_completed', {
+              job: this.publicJob(job),
+              delayMs: job.delayMs,
+              queued: this.queue.length
+            });
           }
 
           if (job.wait_for_response) {
@@ -97,6 +132,17 @@ class ControlQueueService {
           }
 
           const dispatch = await this.publishNow(job);
+          job.dispatched_at = dispatch?.dispatched_at || null;
+          this.emitStatus('dispatched', {
+            job: this.publicJob(job),
+            dispatch,
+            queued: this.queue.length
+          });
+          if (waiter && typeof waiter.setDispatchMeta === 'function') {
+            waiter.setDispatchMeta({
+              dispatched_at: job.dispatched_at,
+            });
+          }
           const controlResponse = waiter ? await waiter.promise : null;
 
           job.resolveRequest({
@@ -106,10 +152,21 @@ class ControlQueueService {
             dispatch,
             control_response: controlResponse
           });
+          this.emitStatus('completed', {
+            job: this.publicJob(job),
+            dispatch,
+            control_response: controlResponse,
+            queued: this.queue.length
+          });
         } catch (error) {
           if (waiter) {
             waiter.cancel(error);
           }
+          this.emitStatus('failed', {
+            job: this.publicJob(job),
+            queued: this.queue.length,
+            error: error?.message || 'Queue job failed'
+          });
           job.rejectRequest(error);
         }
       }
@@ -137,6 +194,7 @@ class ControlQueueService {
     const payload = JSON.stringify({
       gateway_id: command.gateway_id,
       node_id: command.node_id,
+      command_seq: command.command_seq,
       action_type: command.action_type,
       device: command.device,
       state: command.state,
@@ -187,6 +245,8 @@ class ControlQueueService {
       requested_at: job.requested_at,
       requested_at_ms: job.requested_at_ms,
       response_deadline_at: job.response_deadline_at,
+      dispatched_at: job.dispatched_at,
+      command_seq: job.command_seq,
     };
   }
 
@@ -227,6 +287,23 @@ class ControlQueueService {
     }
   }
 
+  emitStatus(status, payload = {}) {
+    if (!this.onStatus) {
+      return;
+    }
+    try {
+      this.onStatus({
+        type: 'control_queue_status',
+        status,
+        ts: new Date().toISOString(),
+        ...payload
+      });
+    } catch (error) {
+      console.error('[controlQueueService] Failed to emit status:', error.message);
+    }
+  }
+
 }
 
 module.exports = ControlQueueService;
+

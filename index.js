@@ -22,7 +22,7 @@ const controlAckAnalyticsService = require('./services/controlAckAnalyticsServic
 const controlAckQueryService = require('./services/controlAckQueryService')
 
 const { app, server } = createHttpServer()
-const sseGatewayService = createSseService(app)
+const { sseGatewayService, controlQueueSseService } = createSseService(app)
 attachSocket(server)
 
 const {
@@ -38,7 +38,8 @@ const {
   env,
   deviceWhitelistService,
   getDb,
-  sseGatewayService
+  sseGatewayService,
+  controlQueueSseService
 })
 
 const controlService = createControlService({ controlCommandService: controlQueueService })

@@ -4,6 +4,8 @@ async function handleHeartbeat(payload, client) {
         const data = JSON.parse(payload);
         const {
             gateway_id,
+            gateway_name,
+            gatewayName,
             gateway_ip,
             gateway_mac,
             ip,
@@ -24,6 +26,10 @@ async function handleHeartbeat(payload, client) {
             status.trim().toLowerCase() === 'online'
                 ? 'online'
                 : 'inactive';
+        const resolvedGatewayName =
+            (typeof gateway_name === 'string' && gateway_name.trim()) ||
+            (typeof gatewayName === 'string' && gatewayName.trim()) ||
+            null;
         const whitelistService = this.getWhitelistService();
         const registered = this.isGatewayRegistered(gateway_id);
         if (!registered) {
@@ -47,7 +53,7 @@ async function handleHeartbeat(payload, client) {
             this.nodeBuffer.set(gateway_id, {
                 gateway_info: {
                     id: gateway_id,
-                    name: 'Main Gateway',
+                    name: resolvedGatewayName || 'Main Gateway',
                     ip: currentGatewayNetworkInfo.ip,
                     mac: currentGatewayNetworkInfo.mac,
                     status: whitelistService.getGatewayStatus(gateway_id),
@@ -61,7 +67,11 @@ async function handleHeartbeat(payload, client) {
 
         const buffer = this.nodeBuffer.get(gateway_id);
         buffer.gateway_info.id = gateway_id;
-        buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
+        if (resolvedGatewayName) {
+            buffer.gateway_info.name = resolvedGatewayName;
+        } else {
+            buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
+        }
         if (resolvedGatewayIp) {
             buffer.gateway_info.ip = resolvedGatewayIp;
         } else if (!buffer.gateway_info.ip) {

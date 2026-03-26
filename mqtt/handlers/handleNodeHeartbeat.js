@@ -59,9 +59,13 @@ async function handleNodeHeartbeat(payload, client) {
         const data = JSON.parse(payload);
         const {
             gateway_id,
+            gateway_name,
+            gatewayName,
             gateway_ip,
             gateway_mac,
             node_id,
+            node_name,
+            nodeName,
             node_ip,
             node_mac,
             status,
@@ -81,6 +85,14 @@ async function handleNodeHeartbeat(payload, client) {
         const nodeType = this.resolveNodeType(node_id);
         const location = resolveGPSLocation(gps, { lat, lng, latitude, longitude });
         const resolvedConnectedNodes = normalizeConnectedNodes(connected_nodes ?? connectedNodes);
+        const resolvedGatewayName =
+            (typeof gateway_name === 'string' && gateway_name.trim()) ||
+            (typeof gatewayName === 'string' && gatewayName.trim()) ||
+            null;
+        const resolvedNodeName =
+            (typeof node_name === 'string' && node_name.trim()) ||
+            (typeof nodeName === 'string' && nodeName.trim()) ||
+            null;
 
         const whitelistService = this.getWhitelistService();
         const gatewayRegistered = this.isGatewayRegistered(gateway_id);
@@ -113,6 +125,7 @@ async function handleNodeHeartbeat(payload, client) {
             status: normalizedNodeStatus,
             ip: node_ip || null,
             mac: node_mac || null,
+            name: resolvedNodeName,
             lat: location?.lat ?? null,
             lng: location?.lng ?? null,
             inside_map: isInsideManagedArea,
@@ -129,7 +142,7 @@ async function handleNodeHeartbeat(payload, client) {
             this.nodeBuffer.set(gateway_id, {
                 gateway_info: {
                     id: gateway_id,
-                    name: 'Main Gateway',
+                    name: resolvedGatewayName || 'Main Gateway',
                     ip: currentGatewayNetworkInfo.ip,
                     mac: currentGatewayNetworkInfo.mac,
                     status: whitelistService.getGatewayStatus(gateway_id),
@@ -142,6 +155,11 @@ async function handleNodeHeartbeat(payload, client) {
         }
 
         const buffer = this.nodeBuffer.get(gateway_id);
+        if (resolvedGatewayName) {
+            buffer.gateway_info.name = resolvedGatewayName;
+        } else {
+            buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
+        }
         buffer.gateway_info.lastSeen = lastSeen;
         if (gateway_ip) {
             buffer.gateway_info.ip = gateway_ip;
@@ -184,7 +202,7 @@ async function handleNodeHeartbeat(payload, client) {
             buffer.nodes[node_id] = {
                 ...existingNode,
                 id: node_id,
-                name: existingNode.name || node_id,
+                name: resolvedNodeName || existingNode.name || node_id,
                 ip: node_ip || existingNode.ip || null,
                 mac: node_mac || existingNode.mac || null,
                 status: normalizedNodeStatus,

@@ -49,6 +49,7 @@ async function handleControllerStatusEvent(payload, topic) {
       eventData.requested_at = correlation.requested_at ?? null
       eventData.requested_at_ms = correlation.requested_at_ms ?? null
       eventData.response_deadline_at = correlation.response_deadline_at ?? null
+      eventData.dispatched_at = correlation.dispatched_at ?? null
     }
 
     if (this.db) {

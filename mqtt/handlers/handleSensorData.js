@@ -4,8 +4,8 @@ async function handleSensorData(payload, client) {
     try {
         const espData = JSON.parse(payload);
         const {
-            gateway_id, gateway_ip, gateway_mac,
-            node_id, node_ip, node_mac,
+            gateway_id, gateway_name, gateway_ip, gateway_mac,
+            node_id, node_name, node_ip, node_mac,
             sensors,
             gateway_timestamp,
             sensor_rssi
@@ -31,6 +31,14 @@ async function handleSensorData(payload, client) {
             return;
         }
         const readingTime = this.normalizeTimestamp(gateway_timestamp) || new Date();
+        const resolvedGatewayName =
+            typeof gateway_name === 'string' && gateway_name.trim()
+                ? gateway_name.trim()
+                : null;
+        const resolvedNodeName =
+            typeof node_name === 'string' && node_name.trim()
+                ? node_name.trim()
+                : null;
         const derivedSensors = [
             {
                 id: `${sensor_id}-temp`,
@@ -113,7 +121,7 @@ async function handleSensorData(payload, client) {
             this.nodeBuffer.set(gateway_id, {
                 gateway_info: {
                     id: gateway_id,
-                    name: 'Main Gateway',
+                    name: resolvedGatewayName || 'Main Gateway',
                     ip: gateway_ip || gatewayNetworkInfo.ip || null,
                     mac: gateway_mac || gatewayNetworkInfo.mac || null,
                     status: whitelistService.getGatewayStatus(gateway_id),
@@ -130,7 +138,11 @@ async function handleSensorData(payload, client) {
         const heartbeatNodeInfo = this.nodeHeartbeatStatus.get(gateway_id)?.get(node_id) || {};
         const nodeData = {
             id: node_id,
-            name: existingNode.name || `Environmental Node ${node_id === 'node-001' ? '#1' : '#2'}`,
+            name:
+                resolvedNodeName ||
+                existingNode.name ||
+                heartbeatNodeInfo.name ||
+                `Environmental Node ${node_id === 'node-001' ? '#1' : '#2'}`,
             ip: node_ip || existingNode.ip || heartbeatNodeInfo.ip || null,
             mac: node_mac || existingNode.mac || heartbeatNodeInfo.mac || null,
             lat: existingNode.lat ?? heartbeatNodeInfo.lat ?? null,
@@ -145,6 +157,11 @@ async function handleSensorData(payload, client) {
 
         buffer.nodes[node_id] = nodeData;
         buffer.gateway_info.lastSeen = readingTime;
+        if (resolvedGatewayName) {
+            buffer.gateway_info.name = resolvedGatewayName;
+        } else {
+            buffer.gateway_info.name = buffer.gateway_info.name || 'Main Gateway';
+        }
         if (gateway_ip) {
             buffer.gateway_info.ip = gateway_ip;
         }

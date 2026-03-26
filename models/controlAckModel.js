@@ -117,7 +117,8 @@ const queryControlAcks = async (query = {}) => {
         command_seq: 1,
         requested_at: 1,
         requested_at_ms: 1,
-        response_deadline_at: 1
+        response_deadline_at: 1,
+        dispatched_at: 1
       }
     })
     .sort({ timestamp: -1, received_at: -1, _id: -1 })
