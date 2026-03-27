@@ -65,7 +65,7 @@ function logNodeHeartbeatSummary(handler) {
     handler.nodeHeartbeatStatus.forEach((nodesMap, gatewayId) => {
         const entries = [];
         nodesMap.forEach((info, nodeId) => {
-            const nodeType = info.type || handler.resolveNodeType(nodeId);
+            const nodeType = handler.resolveNodeType(info.type || info.node_type || null);
             const lastSeen = info.lastSeen instanceof Date
                 ? info.lastSeen.toISOString()
                 : "n/a";

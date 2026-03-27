@@ -73,6 +73,8 @@ async function handleNodeHeartbeat(payload, client) {
             heartbeat_seq,
             gateway_timestamp,
             sensor_rssi,
+            node_type,
+            nodeType,
             controller_states,
             gps,
             lat,
@@ -82,7 +84,11 @@ async function handleNodeHeartbeat(payload, client) {
             connected_nodes,
             connectedNodes,
         } = data;
-        const nodeType = this.resolveNodeType(node_id);
+        const reportedNodeType =
+            (typeof node_type === 'string' && node_type.trim()) ||
+            (typeof nodeType === 'string' && nodeType.trim()) ||
+            '';
+        const resolvedNodeType = this.resolveNodeType(reportedNodeType);
         const location = resolveGPSLocation(gps, { lat, lng, latitude, longitude });
         const resolvedConnectedNodes = normalizeConnectedNodes(connected_nodes ?? connectedNodes);
         const resolvedGatewayName =
@@ -108,7 +114,7 @@ async function handleNodeHeartbeat(payload, client) {
         );
 
         if (!isNodeAllowed) {
-            console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id} type=${nodeType}`);
+            console.log(`Node heartbeat not whitelisted for gateway ${gateway_id}: ${node_id} type=${resolvedNodeType}`);
         }
 
         const lastSeen = this.normalizeTimestamp(gateway_timestamp) || new Date();
@@ -121,7 +127,7 @@ async function handleNodeHeartbeat(payload, client) {
             lastSeen,
             uptime: uptime ?? null,
             seq: heartbeat_seq ?? null,
-            type: nodeType,
+            type: resolvedNodeType,
             status: normalizedNodeStatus,
             ip: node_ip || null,
             mac: node_mac || null,
@@ -207,7 +213,7 @@ async function handleNodeHeartbeat(payload, client) {
                 mac: node_mac || existingNode.mac || null,
                 status: normalizedNodeStatus,
                 registered: isNodeAllowed,
-                node_type: nodeType,
+                node_type: resolvedNodeType,
                 last_seen: lastSeen,
                 rssi: sensor_rssi ?? existingNode.rssi ?? null,
                 lat: location?.lat ?? existingNode.lat ?? null,

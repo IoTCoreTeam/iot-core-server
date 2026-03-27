@@ -15,6 +15,9 @@ function createControlService({ controlCommandService }) {
       device,
       state: body.state,
       value: body.value,
+      command_payload: body.command_payload ?? body.command ?? null,
+      json_command_id: body.json_command_id ?? null,
+      json_command_name: body.json_command_name ?? null,
       delayMs: body.delayMs,
       wait_for_response: body.wait_for_response,
       response_timeout_ms: body.response_timeout_ms

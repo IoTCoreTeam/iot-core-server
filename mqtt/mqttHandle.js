@@ -101,8 +101,8 @@ class MQTTHandlers {
         return timeUtils.formatTimestampForSse(value); // format timestamp for SSE
     }
 
-    resolveNodeType(nodeId) {
-        return statusUtils.resolveNodeType(nodeId); // derive node type
+    resolveNodeType(reportedNodeType) {
+        return statusUtils.resolveNodeType(reportedNodeType); // normalize node type from payload
     }
 
     buildNodeSsePayload(gatewayId, nodeData) {

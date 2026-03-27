@@ -7,7 +7,7 @@ function buildNodeSsePayload(handler, gatewayId, nodeData) {
         return null;
     }
     const nodeId = String(nodeData.id);
-    const nodeType = resolveNodeType(nodeId);
+    const nodeType = resolveNodeType(nodeData.node_type ?? nodeData.type);
 
     return {
         id: nodeId,

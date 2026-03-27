@@ -4,15 +4,15 @@ function normalizeOnlineStatus(value) {
         : 'offline';
 }
 
-function resolveNodeType(nodeId) {
-    const nodeKey = typeof nodeId === 'string'
-        ? nodeId
-        : String(nodeId || '');
-    const lowerNodeId = nodeKey.toLowerCase();
-    if (lowerNodeId.includes('control')) {
+function resolveNodeType(nodeType) {
+    const typeKey = typeof nodeType === 'string'
+        ? nodeType
+        : String(nodeType || '');
+    const normalized = typeKey.trim().toLowerCase();
+    if (normalized === 'node-control') {
         return 'node-control';
     }
-    if (lowerNodeId.includes('sensor')) {
+    if (normalized === 'node-sensor') {
         return 'node-sensor';
     }
     return 'node';

@@ -76,10 +76,30 @@ The following route groups require service token:
 - `POST /v1/control/enqueue`
 - `POST /v1/control/pump`
 - `POST /v1/control/light`
+- `POST /v1/control/ground-control`
 - `GET /v1/device-status`
 - `POST /v1/device-status/ensure-off`
 - `GET /v1/whitelist`
 - `POST /v1/whitelist`
+
+### Extending Device Commands
+To add a new device-specific control endpoint, register a new route in `server/routes/routeControl.js` and add a matching controller method in `server/controllers/controlController.js`.
+
+Example route registration:
+
+```js
+router.post('/fan', requireAuth, allowWrite, controller.commandFan)
+```
+
+Example controller method:
+
+```js
+async function commandFan(req, res) {
+  return commandDevice(req, res, 'fan')
+}
+```
+
+Then expose the new method in the controller return object so the router can use it.
 
 ### Note about JWT settings
 Legacy JWT environment variables may still exist in `.env`, but the current backend-to-server control flow uses `SERVICE_TOKEN`.

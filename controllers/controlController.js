@@ -29,6 +29,10 @@ function createControlController({ controlService }) {
     return commandDevice(req, res, 'light')
   }
 
+  async function commandGroundControl(req, res) {
+    return commandDevice(req, res, 'ground-control')
+  }
+
   async function commandDevice(req, res, device) {
     try {
       const result = await controlService.commandDevice(req.body || {}, device)
@@ -59,6 +63,7 @@ function createControlController({ controlService }) {
     enqueueCommand,
     commandPump,
     commandLight,
+    commandGroundControl,
     health
   }
 }
