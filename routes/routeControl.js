@@ -11,6 +11,7 @@ function createControlRoute(controller, { authenticate, authorizeWrite } = {}) {
   router.post('/pump', requireAuth, allowWrite, controller.commandPump)
   router.post('/light', requireAuth, allowWrite, controller.commandLight)
   router.post('/ground-control', requireAuth, allowWrite, controller.commandGroundControl)
+  router.post('/fan', requireAuth, allowWrite, controller.commandFan)
 
   // khai báo mở rộng thêm các thiết bị khác ở đây nếu cần, nó sẽ gán vào trường ""device": <device-type>", ví dụ:
   // router.post('/fan', requireAuth, allowWrite, (req, res) => controller.commandDevice(req, res, 'fan'))

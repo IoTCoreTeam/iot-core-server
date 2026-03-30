@@ -20,6 +20,11 @@ function buildNodeSsePayload(handler, gatewayId, nodeData) {
         mac: nodeData.mac || null,
         lat: typeof nodeData.lat === 'number' ? nodeData.lat : null,
         lng: typeof nodeData.lng === 'number' ? nodeData.lng : null,
+        heading_deg: typeof nodeData.heading_deg === 'number' ? nodeData.heading_deg : null,
+        heading_cardinal:
+            typeof nodeData.heading_cardinal === 'string' ? nodeData.heading_cardinal : null,
+        head_lat: typeof nodeData.head_lat === 'number' ? nodeData.head_lat : null,
+        head_lng: typeof nodeData.head_lng === 'number' ? nodeData.head_lng : null,
         status: normalizeOnlineStatus(nodeData.status),
         registered: isNodeRegisteredForGateway(handler, gatewayId, nodeId),
         inside_map: typeof nodeData.inside_map === 'boolean' ? nodeData.inside_map : null,

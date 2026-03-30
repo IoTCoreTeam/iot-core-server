@@ -147,6 +147,11 @@ async function handleSensorData(payload, client) {
             mac: node_mac || existingNode.mac || heartbeatNodeInfo.mac || null,
             lat: existingNode.lat ?? heartbeatNodeInfo.lat ?? null,
             lng: existingNode.lng ?? heartbeatNodeInfo.lng ?? null,
+            heading_deg: existingNode.heading_deg ?? heartbeatNodeInfo.heading_deg ?? null,
+            heading_cardinal:
+                existingNode.heading_cardinal ?? heartbeatNodeInfo.heading_cardinal ?? null,
+            head_lat: existingNode.head_lat ?? heartbeatNodeInfo.head_lat ?? null,
+            head_lng: existingNode.head_lng ?? heartbeatNodeInfo.head_lng ?? null,
             inside_map: existingNode.inside_map ?? heartbeatNodeInfo.inside_map ?? null,
             status: 'online',
             registered: isNodeRegistered,

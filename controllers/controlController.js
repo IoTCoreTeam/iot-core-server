@@ -33,12 +33,19 @@ function createControlController({ controlService }) {
     return commandDevice(req, res, 'ground-control')
   }
 
+  async function commandFan(req, res) {
+    return commandDevice(req, res, 'fan')
+  }
+
   async function commandDevice(req, res, device) {
     try {
-      const result = await controlService.commandDevice(req.body || {}, device)
+      const body = req.body || {}
+      const payloadDevice = typeof body.device === 'string' ? body.device.trim() : ''
+      const resolvedDevice = payloadDevice || device
+      const result = await controlService.commandDevice(body, resolvedDevice)
       return res.json({
         success: true,
-        message: `${device} command completed`,
+        message: `${resolvedDevice} command completed`,
         data: result
       })
     } catch (error) {
@@ -64,6 +71,7 @@ function createControlController({ controlService }) {
     commandPump,
     commandLight,
     commandGroundControl,
+    commandFan,
     health
   }
 }
