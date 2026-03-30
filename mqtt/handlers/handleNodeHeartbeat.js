@@ -308,8 +308,9 @@ async function handleNodeHeartbeat(payload, client) {
                               id: `${node_id}-${deviceId}`,
                               type: item.kind || item.type || 'digital',
                               name: deviceId,
-                              value: item.state ?? item.value ?? null,
+                              value: item.value ?? item.state ?? null,
                               status: item.state ?? item.value ?? null,
+                              state: item.state ?? null,
                               timestamp: lastSeen,
                           };
                       })
