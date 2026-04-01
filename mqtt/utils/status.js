@@ -9,10 +9,10 @@ function resolveNodeType(nodeType) {
         ? nodeType
         : String(nodeType || '');
     const normalized = typeKey.trim().toLowerCase();
-    if (normalized === 'node-control') {
+    if (normalized === 'node-control' || normalized === 'controller' || normalized === 'control') {
         return 'node-control';
     }
-    if (normalized === 'node-sensor') {
+    if (normalized === 'node-sensor' || normalized === 'sensor') {
         return 'node-sensor';
     }
     return 'node';

@@ -8,7 +8,9 @@ async function handleSensorData(payload, client) {
             node_id, node_name, node_ip, node_mac,
             sensors,
             gateway_timestamp,
-            sensor_rssi
+            sensor_rssi,
+            node_type,
+            nodeType
         } = espData;
         const {
             sensor_id,
@@ -39,6 +41,11 @@ async function handleSensorData(payload, client) {
             typeof node_name === 'string' && node_name.trim()
                 ? node_name.trim()
                 : null;
+        const resolvedNodeType = this.resolveNodeType(
+            (typeof node_type === 'string' && node_type.trim())
+                ? node_type
+                : nodeType
+        );
         const derivedSensors = [
             {
                 id: `${sensor_id}-temp`,
@@ -155,6 +162,7 @@ async function handleSensorData(payload, client) {
             inside_map: existingNode.inside_map ?? heartbeatNodeInfo.inside_map ?? null,
             status: 'online',
             registered: isNodeRegistered,
+            node_type: resolvedNodeType,
             last_seen: readingTime,
             rssi: sensor_rssi,
             devices,
