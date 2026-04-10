@@ -6,7 +6,7 @@ const { createDeviceStatusRoute } = require('../routes/routeDeviceStatus')
 const { createControlAckRoute } = require('../routes/routeControlAck')
 const { createWorkflowEventRoute } = require('../routes/routeWorkflowEvent')
 const env = require('../config/env')
-const { createAuthenticateServiceToken } = require('../middlewares/authenticateServiceToken')
+const { createAuthenticateBackendToken } = require('../middlewares/authenticateBackendToken')
 
 const registerRoutes = (app, controllers) => {
   const {
@@ -19,34 +19,34 @@ const registerRoutes = (app, controllers) => {
     workflowEventController
   } = controllers
 
-  const authenticateServiceToken = createAuthenticateServiceToken(env)
+  const authenticateBackendToken = createAuthenticateBackendToken(env)
 
   const routeMetricData = createMetricDataRoute(sensorController)
   const routeMetrics = createMetricsRoute(metricController)
   const routeControl = createControlRoute(controlController, {
-    authenticate: authenticateServiceToken,
-    authorizeWrite: authenticateServiceToken
+    authenticate: authenticateBackendToken,
+    authorizeWrite: authenticateBackendToken
   })
   const routeDeviceStatus = createDeviceStatusRoute(deviceStatusController, {
-    authorizeRead: authenticateServiceToken,
-    authorizeWrite: authenticateServiceToken
+    authorizeRead: authenticateBackendToken,
+    authorizeWrite: authenticateBackendToken
   })
   const routeControlAck = createControlAckRoute(controlAckController)
   const routeWorkflowEvent = createWorkflowEventRoute(workflowEventController, {
-    authenticate: authenticateServiceToken,
-    authorizeWrite: authenticateServiceToken
+    authenticate: authenticateBackendToken,
+    authorizeWrite: authenticateBackendToken
   })
   const whitelistRoute = createWhitelistRoute(whitelistController, {
-    authorizeRead: authenticateServiceToken,
-    authorizeWrite: authenticateServiceToken
+    authorizeRead: authenticateBackendToken,
+    authorizeWrite: authenticateBackendToken
   })
 
-  app.use('/v1/sensors', routeMetricData)
-  app.use('/v1/metrics', routeMetrics)
+  app.use('/v1/sensors', authenticateBackendToken, routeMetricData)
+  app.use('/v1/metrics', authenticateBackendToken, routeMetrics)
   app.use('/v1/whitelist', whitelistRoute)
   app.use('/v1/control', routeControl)
   app.use('/v1/device-status', routeDeviceStatus)
-  app.use('/v1/control-acks', routeControlAck)
+  app.use('/v1/control-acks', authenticateBackendToken, routeControlAck)
   app.use('/v1/workflow-events', routeWorkflowEvent)
 }
 
