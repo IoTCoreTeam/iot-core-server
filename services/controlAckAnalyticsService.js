@@ -91,9 +91,13 @@ const percentile = (values, p) => {
   return sorted[index]
 }
 
+const parseBucket = (value) => (value === 'minute' ? 'minute' : 'hour')
+
+const parseHours = (value) => clamp(Number(value) || DAY_IN_HOURS, 1, 168)
+
 const getControlAckOverview = async ({ hours = DAY_IN_HOURS, bucket = 'hour' } = {}) => {
-  const safeHours = clamp(Number(hours) || DAY_IN_HOURS, 1, 168)
-  const safeBucket = bucket === 'minute' ? 'minute' : 'hour'
+  const safeHours = parseHours(hours)
+  const safeBucket = parseBucket(bucket)
   const now = new Date()
   const since = new Date(now.getTime() - safeHours * MS_PER_HOUR)
 
@@ -170,6 +174,85 @@ const getControlAckOverview = async ({ hours = DAY_IN_HOURS, bucket = 'hour' } =
   }
 }
 
+const getControllerExecutionStats = async ({
+  nodeId,
+  hours = DAY_IN_HOURS,
+  bucket = 'hour'
+} = {}) => {
+  if (!nodeId) {
+    const error = new Error('nodeId is required')
+    error.statusCode = 400
+    throw error
+  }
+
+  const safeHours = parseHours(hours)
+  const safeBucket = parseBucket(bucket)
+  const now = new Date()
+  const since = new Date(now.getTime() - safeHours * MS_PER_HOUR)
+  const stepMs = safeBucket === 'hour' ? MS_PER_HOUR : MS_PER_MINUTE
+
+  const rows = await listControlAcks({ since })
+  const buckets = buildTimelineBuckets({ since, now, bucket: safeBucket })
+  const bucketIndex = new Map(
+    buckets.map((bucketDate, idx) => [bucketDate.toISOString(), idx])
+  )
+
+  const countsByController = new Map()
+
+  rows.forEach((row) => {
+    if (String(row?.node_id || '') !== String(nodeId)) return
+
+    const eventTime = parseDate(row.timestamp) || parseDate(row.received_at)
+    if (!eventTime) return
+    if (eventTime < since || eventTime > now) return
+
+    const bucketKey = toBucketDate(eventTime, safeBucket).toISOString()
+    const index = bucketIndex.get(bucketKey)
+    if (index === undefined) return
+
+    const controller = String(row?.device || 'unknown').trim() || 'unknown'
+    if (!countsByController.has(controller)) {
+      countsByController.set(controller, new Array(buckets.length).fill(0))
+    }
+    countsByController.get(controller)[index] += 1
+  })
+
+  const controllers = Array.from(countsByController.keys()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  )
+
+  const categories = buckets.map((bucketDate) => bucketDate.toISOString())
+  const series = controllers.map((controller) => {
+    const values = countsByController.get(controller) || new Array(categories.length).fill(0)
+    return {
+      controller,
+      data: categories.map((timestamp, index) => ({
+        timestamp,
+        count: Number(values[index] || 0)
+      })),
+      total: values.reduce((acc, value) => acc + Number(value || 0), 0)
+    }
+  })
+
+  const totalExecutions = series.reduce((acc, item) => acc + item.total, 0)
+  const timeline = categories.map((timestamp, index) => ({
+    timestamp,
+    total: series.reduce((acc, item) => acc + Number(item.data[index]?.count || 0), 0)
+  }))
+
+  return {
+    node_id: String(nodeId),
+    range_hours: safeHours,
+    bucket: safeBucket,
+    step_ms: stepMs,
+    controllers,
+    timeline,
+    series,
+    total_executions: totalExecutions
+  }
+}
+
 module.exports = {
-  getControlAckOverview
+  getControlAckOverview,
+  getControllerExecutionStats
 }

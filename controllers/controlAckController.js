@@ -32,9 +32,26 @@ function createControlAckController({ controlAckAnalyticsService, controlAckQuer
     }
   }
 
+  async function getControllerExecutions(req, res) {
+    try {
+      const { node_id: nodeId, hours, bucket } = req.query || {}
+      const data = await controlAckAnalyticsService.getControllerExecutionStats({
+        nodeId,
+        hours,
+        bucket
+      })
+      res.json(data)
+    } catch (error) {
+      console.error('[controlAckController] Error fetching controller executions:', error.message)
+      const status = error.statusCode || 500
+      res.status(status).json({ error: error.message || 'Failed to load controller execution stats.' })
+    }
+  }
+
   return {
     getOverview,
-    queryRows
+    queryRows,
+    getControllerExecutions
   }
 }
 

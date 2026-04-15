@@ -8,15 +8,28 @@ const listControlAcks = async ({ since, limit = 20000 } = {}) => {
   const collection = db.collection(CONTROL_ACK_COLLECTION_NAME)
 
   const query = { topic: ACK_V2_TOPIC }
+  if (since) {
+    const sinceDate = new Date(since)
+    if (!Number.isNaN(sinceDate.getTime())) {
+      query.$or = [
+        { received_at: { $gte: sinceDate } },
+        { timestamp: { $gte: sinceDate.toISOString() } }
+      ]
+    }
+  }
 
   return collection
     .find(query, {
       projection: {
         _id: 0,
+        gateway_id: 1,
+        node_id: 1,
+        device: 1,
         state: 1,
         status: 1,
         timestamp: 1,
-        received_at: 1
+        received_at: 1,
+        command_exec_ms: 1
       }
     })
     .sort({ timestamp: 1, received_at: 1 })

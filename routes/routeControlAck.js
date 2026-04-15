@@ -5,6 +5,7 @@ function createControlAckRoute(controller) {
 
   router.get('/overview', controller.getOverview)
   router.get('/query', controller.queryRows)
+  router.get('/controller-executions', controller.getControllerExecutions)
 
   return router
 }
