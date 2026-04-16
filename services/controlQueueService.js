@@ -386,7 +386,11 @@ class ControlQueueService {
       this.currentWaiter.cancel(new Error(reason))
     }
 
-    this.blockWorkflow({ runId: runIdText, workflowId: workflowIdText })
+    const shouldBlockWorkflow = !runIdText && Boolean(workflowIdText)
+    this.blockWorkflow({
+      runId: runIdText,
+      workflowId: shouldBlockWorkflow ? workflowIdText : null
+    })
 
     return {
       canceledQueued: canceledQueued.length,
